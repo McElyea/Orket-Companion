@@ -1,0 +1,8 @@
+manifest_version: v0
+extension_id: orket.companion
+extension_version: 0.1.0
+workloads:
+  - workload_id: companion_chat
+    entrypoint: companion_extension.workload:run
+    required_capabilities:
+      - model.generate
