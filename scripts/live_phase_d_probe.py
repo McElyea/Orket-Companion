@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import datetime, timezone
 import json
 import os
 import platform
+import shutil
 import statistics
 import subprocess
 import sys
@@ -103,6 +105,73 @@ def _system_profile() -> dict[str, Any]:
     }
 
 
+def _typeperf_counter_sample(counter_path: str) -> dict[str, Any]:
+    if platform.system() != "Windows":
+        return {"available": False, "reason": f"unsupported_platform:{platform.system()}"}
+    if shutil.which("typeperf") is None:
+        return {"available": False, "reason": "typeperf_not_found"}
+    proc = subprocess.run(
+        ["typeperf", counter_path, "-sc", "1"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        return {"available": False, "reason": f"typeperf_failed:{err[:120]}"}
+    rows = [
+        row
+        for row in csv.reader((proc.stdout or "").splitlines())
+        if row and any(str(cell).strip() for cell in row)
+    ]
+    data_rows = [row for row in rows if len(row) > 1 and str(row[0]).strip()[:1].isdigit()]
+    if not data_rows:
+        return {"available": False, "reason": "typeperf_output_empty"}
+    values: list[float] = []
+    for raw in data_rows[-1][1:]:
+        token = str(raw).strip().strip('"').replace(",", ".")
+        if not token:
+            continue
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    if not values:
+        return {"available": False, "reason": "typeperf_values_missing"}
+    return {"available": True, "samples": [round(v, 2) for v in values]}
+
+
+def _system_resource_snapshot() -> dict[str, Any]:
+    cpu = _typeperf_counter_sample(r"\Processor(_Total)\% Processor Time")
+    mem = _typeperf_counter_sample(r"\Memory\% Committed Bytes In Use")
+    gpu = _typeperf_counter_sample(r"\GPU Engine(*)\Utilization Percentage")
+    snapshot: dict[str, Any] = {
+        "timestamp_utc": _utc_now_iso(),
+        "cpu_total_percent": None,
+        "memory_committed_percent": None,
+        "gpu_engine_percent_max": None,
+        "gpu_engine_percent_sum": None,
+        "notes": [],
+    }
+    if cpu.get("available"):
+        snapshot["cpu_total_percent"] = float(cpu["samples"][0])
+    else:
+        snapshot["notes"].append({"cpu": cpu.get("reason")})
+    if mem.get("available"):
+        snapshot["memory_committed_percent"] = float(mem["samples"][0])
+    else:
+        snapshot["notes"].append({"memory": mem.get("reason")})
+    if gpu.get("available"):
+        gpu_samples = [max(0.0, float(v)) for v in gpu["samples"]]
+        snapshot["gpu_engine_percent_max"] = round(max(gpu_samples), 2)
+        snapshot["gpu_engine_percent_sum"] = round(sum(gpu_samples), 2)
+    else:
+        snapshot["notes"].append({"gpu": gpu.get("reason")})
+    if not snapshot["notes"]:
+        snapshot.pop("notes")
+    return snapshot
+
+
 def _summarize_voice_payload(result: dict[str, Any], *, include_audio: bool) -> None:
     body = result.get("body")
     if not isinstance(body, dict):
@@ -169,6 +238,7 @@ def _run_probe_once(
         "session_id": run_session_id,
         "timestamp_utc": _utc_now_iso(),
     }
+    run_results["system_metrics_before"] = _system_resource_snapshot()
     run_results["status"] = _timed_json_request(client, "GET", f"{base_url}/api/status")
     run_results["chat"] = _timed_json_request(
         client,
@@ -218,6 +288,7 @@ def _run_probe_once(
         f"{base_url}/api/avatar/control-events",
         params={"session_id": "companion-main", "after_seq": 0, "limit": 10},
     )
+    run_results["system_metrics_after"] = _system_resource_snapshot()
     return run_results
 
 
@@ -307,6 +378,7 @@ def main() -> int:
             "model": args.model,
             "ui_interrupt_probe": bool(args.ui_interrupt_probe),
             "ui_timeout_sec": float(args.ui_timeout_sec),
+            "system_metrics_mode": "windows_typeperf_snapshots",
         },
         "system_profile": _system_profile(),
         "results": {},
