@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -34,6 +35,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--http-timeout-sec", type=float, default=60.0)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--output", default="")
+    parser.add_argument("--ui-interrupt-probe", action="store_true")
+    parser.add_argument("--ui-timeout-sec", type=float, default=90.0)
+    parser.add_argument("--ui-headed", action="store_true")
     parser.add_argument(
         "--include-audio",
         action="store_true",
@@ -227,6 +231,46 @@ def _write_output_if_requested(summary: dict[str, Any], output_path_raw: str) ->
     return str(path.resolve())
 
 
+def _run_ui_interrupt_probe(*, companion_root: str, base_url: str, args: argparse.Namespace) -> dict[str, Any]:
+    ui_root = Path(companion_root) / "UI"
+    runner = Path("scripts") / "live_ui_interrupt_probe.mjs"
+    cmd = [
+        "node",
+        str(runner),
+        "--base-url",
+        base_url,
+        "--message",
+        args.message,
+        "--timeout-sec",
+        str(float(args.ui_timeout_sec)),
+    ]
+    if args.ui_headed:
+        cmd.append("--headed")
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(ui_root),
+    )
+    stdout = str(proc.stdout or "").strip()
+    result_payload: dict[str, Any]
+    try:
+        result_payload = json.loads(stdout) if stdout else {"ok": False, "error": "empty_ui_probe_stdout"}
+    except json.JSONDecodeError:
+        result_payload = {
+            "ok": False,
+            "error": "ui_probe_output_parse_failed",
+            "stdout": stdout,
+        }
+    result_payload["exit_code"] = int(proc.returncode)
+    if proc.stderr:
+        result_payload["stderr"] = proc.stderr.strip()
+    if proc.returncode != 0:
+        result_payload["ok"] = False
+    return result_payload
+
+
 def main() -> int:
     args = _parse_args()
     _configure_environment(args)
@@ -261,6 +305,8 @@ def main() -> int:
             "startup_wait_sec": float(args.startup_wait_sec),
             "provider": args.provider,
             "model": args.model,
+            "ui_interrupt_probe": bool(args.ui_interrupt_probe),
+            "ui_timeout_sec": float(args.ui_timeout_sec),
         },
         "system_profile": _system_profile(),
         "results": {},
@@ -293,6 +339,15 @@ def main() -> int:
                 if key in first_run
             }
             summary["aggregates"] = _aggregate_runs(summary["runs"])
+            if args.ui_interrupt_probe:
+                summary["ui_interrupt_probe"] = _run_ui_interrupt_probe(
+                    companion_root=args.companion_root,
+                    base_url=base,
+                    args=args,
+                )
+                if not bool(summary["ui_interrupt_probe"].get("ok")):
+                    summary["ok"] = False
+                    summary["error"] = "ui_interrupt_probe_failed"
     except Exception as exc:  # top-level script boundary
         summary["ok"] = False
         summary["error"] = str(exc)
