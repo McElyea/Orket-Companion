@@ -18,6 +18,7 @@ import {
   loadAvatarPrefsFromStorage,
   persistAvatarPrefs,
 } from "./avatar_prefs";
+import { deriveAvatarPrimaryState } from "./avatar_lifecycle";
 import { createAvatarRenderer, resolveAvatarRenderDecision } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
 import type {
@@ -390,13 +391,15 @@ export function App(): JSX.Element {
   const avatarAssetAllowed = avatarRenderDecision.assetPolicyAllowed;
   const hasAvatarAssetRef = avatarRenderDecision.hasAssetRef;
   const avatarFallbackActive = avatarRenderDecision.fallbackActive;
-  const avatarPrimaryState: "idle" | "listening" | "thinking" | "speaking" = ttsSpeaking
-    ? "speaking"
-    : voicePickupActive
-      ? "listening"
-      : sending
-        ? "thinking"
-        : "idle";
+  const avatarPrimaryState = useMemo(
+    () =>
+      deriveAvatarPrimaryState({
+        playbackActive: ttsSpeaking,
+        voiceCaptureActive: voicePickupActive,
+        requestInFlight: sending,
+      }),
+    [sending, ttsSpeaking, voicePickupActive],
+  );
 
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>): void => {
     setUiPreferences((current) => {
@@ -908,6 +911,7 @@ export function App(): JSX.Element {
             avatarRenderAssetRef={avatarRenderDecision.renderAssetRef}
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
+            avatarPrimaryState={avatarPrimaryState}
             onAvatarError={() => setAvatarLoadFailed(true)}
           />
         )}
@@ -922,6 +926,7 @@ export function App(): JSX.Element {
             avatarRenderAssetRef={avatarRenderDecision.renderAssetRef}
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
+            avatarPrimaryState={avatarPrimaryState}
             onAvatarError={() => setAvatarLoadFailed(true)}
           />
         ) : (
@@ -1480,6 +1485,7 @@ interface PresencePanelProps {
   avatarRenderAssetRef: string | null;
   avatarFallbackActive: boolean;
   avatarFallbackReason: string;
+  avatarPrimaryState: "idle" | "listening" | "thinking" | "speaking";
   onAvatarError: () => void;
 }
 
@@ -1492,6 +1498,7 @@ function PresencePanel({
   avatarRenderAssetRef,
   avatarFallbackActive,
   avatarFallbackReason,
+  avatarPrimaryState,
   onAvatarError,
 }: PresencePanelProps): JSX.Element {
   const normalizedAssetRef = String(avatarRenderAssetRef || "").trim();
@@ -1520,6 +1527,7 @@ function PresencePanel({
         </div>
 
         <div className={styles.moodChip}>
+          <span className={styles.statusLabel}>{avatarPrimaryState}</span>
           <span className={styles.statusValue}>{mood}</span>
         </div>
         <p className={styles.helperText}>{avatarFallbackActive ? avatarFallbackReason : "Avatar asset loaded."}</p>

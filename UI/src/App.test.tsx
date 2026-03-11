@@ -397,6 +397,25 @@ describe("Companion App", () => {
     });
   });
 
+  it("Layer: contract. derives deterministic avatar lifecycle state from voice/runtime signals.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+    expect(screen.getByText("idle")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /start/i }));
+    await waitFor(() => {
+      expect(screen.getByText("listening")).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: /^stop$/i }));
+    await waitFor(() => {
+      expect(screen.getByText("idle")).toBeTruthy();
+    });
+  });
+
   it("Layer: contract. supports keyboard traversal to chat composer controls without a left rail.", async () => {
     installFetchMock();
     const user = userEvent.setup();
