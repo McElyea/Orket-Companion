@@ -9,6 +9,8 @@ function parseArgs(argv) {
     rafSampleSec: 2,
     speakingRafSampleSec: 5,
     avatarMode: "",
+    provider: "",
+    model: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = String(argv[index] || "");
@@ -55,6 +57,16 @@ function parseArgs(argv) {
       if (candidate === "off" || candidate === "fallback" || candidate === "avatar") {
         args.avatarMode = candidate;
       }
+      index += 1;
+      continue;
+    }
+    if (token === "--provider" && argv[index + 1]) {
+      args.provider = String(argv[index + 1] || "").trim();
+      index += 1;
+      continue;
+    }
+    if (token === "--model" && argv[index + 1]) {
+      args.model = String(argv[index + 1] || "").trim();
       index += 1;
       continue;
     }
@@ -122,6 +134,8 @@ async function main() {
     raf_sample_sec: args.rafSampleSec,
     speaking_raf_sample_sec: args.speakingRafSampleSec,
     avatar_mode: args.avatarMode || null,
+    provider: args.provider || null,
+    model: args.model || null,
     request_counts: requestCounts,
     performance_metrics: null,
     checks: {
@@ -138,6 +152,25 @@ async function main() {
     await page.goto(args.baseUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await page.getByText("Synced with host.", { exact: false }).waitFor({ timeout: timeoutMs });
     summary.checks.synced_notice = true;
+    if (args.provider) {
+      await page.selectOption("#provider-id", args.provider, { timeout: timeoutMs });
+      await page.waitForTimeout(350);
+    }
+    if (args.model) {
+      await page.waitForFunction(
+        (modelId) => {
+          const select = document.querySelector("#model-id");
+          if (!(select instanceof HTMLSelectElement)) {
+            return false;
+          }
+          return Array.from(select.options).some((option) => option.value === modelId);
+        },
+        args.model,
+        { timeout: timeoutMs },
+      );
+      await page.selectOption("#model-id", args.model, { timeout: timeoutMs });
+      await page.waitForTimeout(350);
+    }
     if (args.avatarMode) {
       await page.selectOption("#avatar-mode", args.avatarMode, { timeout: timeoutMs });
       await page.waitForTimeout(350);
@@ -175,7 +208,20 @@ async function main() {
         composer.press("Enter", { timeout: timeoutMs }),
       ]);
       summary.checks.chat_request = requestCounts.chat > priorChatCount;
-      await page.waitForTimeout(1200);
+      try {
+        await page.waitForFunction(
+          () => {
+            const candidate = Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.trim() === "Speak Last Reply",
+            );
+            return !!candidate && !candidate.hasAttribute("disabled");
+          },
+          undefined,
+          { timeout: Math.max(2000, Math.floor(timeoutMs * 0.6)) },
+        );
+      } catch {
+        // Preserve later explicit failure if speak remains disabled.
+      }
     } else {
       summary.checks.chat_request = requestCounts.chat > 0;
     }
@@ -202,17 +248,19 @@ async function main() {
     summary.checks.stop_playback_observed = true;
     summary.performance_metrics.speaking_raf_sample = await sampleRaf(page, args.speakingRafSampleSec);
 
-    await stopButton.click({ timeout: timeoutMs });
-    await page.waitForFunction(
-      () => {
-        const candidate = Array.from(document.querySelectorAll("button")).find(
-          (button) => button.textContent?.trim() === "Stop Playback",
-        );
-        return !!candidate && candidate.hasAttribute("disabled");
-      },
-      undefined,
-      { timeout: timeoutMs },
-    );
+    if (!(await stopButton.isDisabled())) {
+      await stopButton.click({ timeout: timeoutMs });
+      await page.waitForFunction(
+        () => {
+          const candidate = Array.from(document.querySelectorAll("button")).find(
+            (button) => button.textContent?.trim() === "Stop Playback",
+          );
+          return !!candidate && candidate.hasAttribute("disabled");
+        },
+        undefined,
+        { timeout: timeoutMs },
+      );
+    }
     summary.checks.stop_playback_cleared = true;
   } catch (error) {
     summary.ok = false;

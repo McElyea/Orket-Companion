@@ -18,7 +18,6 @@ from typing import Any
 import httpx
 import uvicorn
 
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a local Companion Phase D baseline probe.")
     parser.add_argument("--orket-root", default=r"C:\Source\Orket")
@@ -47,7 +46,6 @@ def _parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
 def _configure_environment(args: argparse.Namespace) -> None:
     os.environ["ORKET_API_KEY"] = "core-key"
     os.environ["ORKET_COMPANION_API_KEY"] = "companion-key"
@@ -62,11 +60,9 @@ def _configure_environment(args: argparse.Namespace) -> None:
             os.environ["ORKET_TTS_PIPER_VOICES_DIR"] = args.piper_voices_dir
         os.environ["ORKET_TTS_PIPER_BIN"] = args.piper_bin
 
-
 def _sys_path_insert(repo_root: str, companion_root: str) -> None:
     sys.path.insert(0, str(Path(repo_root)))
     sys.path.insert(0, str(Path(companion_root) / "src"))
-
 
 def _timed_json_request(
     client: httpx.Client,
@@ -88,7 +84,6 @@ def _timed_json_request(
         "body": payload,
     }
 
-
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -103,7 +98,6 @@ def _system_profile() -> dict[str, Any]:
         "python_version": platform.python_version(),
         "cpu_count_logical": os.cpu_count(),
     }
-
 
 def _typeperf_counter_sample(counter_path: str) -> dict[str, Any]:
     if platform.system() != "Windows":
@@ -305,16 +299,7 @@ def _write_output_if_requested(summary: dict[str, Any], output_path_raw: str) ->
 def _run_ui_interrupt_probe(*, companion_root: str, base_url: str, args: argparse.Namespace) -> dict[str, Any]:
     ui_root = Path(companion_root) / "UI"
     runner = Path("scripts") / "live_ui_interrupt_probe.mjs"
-    cmd = [
-        "node",
-        str(runner),
-        "--base-url",
-        base_url,
-        "--message",
-        args.message,
-        "--timeout-sec",
-        str(float(args.ui_timeout_sec)),
-    ]
+    cmd = ["node", str(runner), "--base-url", base_url, "--message", args.message, "--timeout-sec", str(float(args.ui_timeout_sec)), "--provider", args.provider, "--model", args.model]
     if args.ui_headed:
         cmd.append("--headed")
     proc = subprocess.run(
