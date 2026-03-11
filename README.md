@@ -56,6 +56,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 3. Reproducible Phase D baseline probe (host + gateway + chat + voice synth + avatar control-feed):
    - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion`
    - Add `--runs <N>` for repeated baseline samples with aggregate latency statistics.
+   - Pin `--model llama3.1:8b` for lower-latency, more stable local chat responses when heavier defaults are slow or timeout-prone.
    - Add `--output <path>` to write canonical JSON results for later comparison.
    - Per run, the probe now captures `system_metrics_before` / `system_metrics_after` snapshots (CPU, memory, and GPU engine utilization) via Windows `typeperf` when available.
    - Add `--ui-interrupt-probe` to execute a real browser interruption/cancel check (`Speak Last Reply` -> `Stop Playback`) against the live UI path, including browser-side navigation timing and sampled FPS metrics.
