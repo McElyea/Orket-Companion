@@ -18,6 +18,10 @@ import {
   loadAvatarPrefsFromStorage,
   persistAvatarPrefs,
 } from "./avatar_prefs";
+import {
+  createAvatarControlEventDeduper,
+  parseAvatarControlEventEnvelope,
+} from "./avatar_control_events";
 import { deriveAvatarPrimaryState } from "./avatar_lifecycle";
 import { createAvatarRenderer, resolveAvatarRenderDecision } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
@@ -351,6 +355,8 @@ export function App(): JSX.Element {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const avatarRendererRef = useRef<ReturnType<typeof createAvatarRenderer> | null>(null);
+  const avatarControlEventDeduperRef = useRef(createAvatarControlEventDeduper());
+  const avatarControlEventSeqRef = useRef(0);
   const setModelSelection = useCallback((nextModel: string): void => {
     modelSelectionRef.current = nextModel;
     setModel(nextModel);
@@ -417,6 +423,39 @@ export function App(): JSX.Element {
       fallback_policy: "always_safe",
     }));
   }, []);
+
+  const dispatchAvatarControlEvent = useCallback(
+    (type: string, payload: Record<string, unknown>): void => {
+      avatarControlEventSeqRef.current += 1;
+      const parsed = parseAvatarControlEventEnvelope({
+        type,
+        version: "avatar_event_v1",
+        session_id: sessionId,
+        ts: new Date().toISOString(),
+        idempotency_key: `${type}:${sessionId}:${avatarControlEventSeqRef.current}`,
+        payload,
+      });
+      if (!parsed.ok || !parsed.event) {
+        console.warn("avatar.control_event_parse_failed", {
+          type,
+          error: parsed.error,
+        });
+        return;
+      }
+      if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
+        return;
+      }
+      try {
+        avatarRendererRef.current?.applyControlEvent(parsed.event);
+      } catch (error) {
+        console.warn("avatar.control_event_apply_failed", {
+          type: parsed.event.type,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    },
+    [sessionId],
+  );
 
   useEffect(() => {
     if (!initialAvatarPrefsLoad.migrationWarning) {
@@ -791,10 +830,12 @@ export function App(): JSX.Element {
           if (audioSourceRef.current === source) {
             audioSourceRef.current = null;
             setTtsSpeaking(false);
+            dispatchAvatarControlEvent("speech.end", { source: "tts_playback" });
           }
         };
         audioSourceRef.current = source;
         setTtsSpeaking(true);
+        dispatchAvatarControlEvent("speech.start", { source: "tts_playback" });
         source.start(0);
         setNotice(`Speaking with ${payload.voice_id || "default voice"}.`);
       } catch (error) {
@@ -803,7 +844,7 @@ export function App(): JSX.Element {
         setNotice(`TTS error: ${detail}`);
       }
     },
-    [api, ensureAudioContext, presenceMood, selectedVoiceId, stopAudioPlayback],
+    [api, dispatchAvatarControlEvent, ensureAudioContext, presenceMood, selectedVoiceId, stopAudioPlayback],
   );
 
   const handleChatSubmit = useCallback(
@@ -861,13 +902,18 @@ export function App(): JSX.Element {
           setNotice(`Voice ${command}: ${payload.error_code} ${payload.error_message}`.trim());
           return;
         }
+        if (payload.state === "start") {
+          dispatchAvatarControlEvent("speech.start", { source: "voice_control" });
+        } else if (payload.state === "stop") {
+          dispatchAvatarControlEvent("speech.end", { source: "voice_control" });
+        }
         setNotice(`Voice command '${command}' applied. State is now ${humanizeState(payload.state)}.`);
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Voice request failed.";
         setNotice(`Voice error: ${detail}`);
       }
     },
-    [api, config.voice.silence_delay_sec],
+    [api, config.voice.silence_delay_sec, dispatchAvatarControlEvent],
   );
 
   const speakLatestAssistantReply = useCallback(async (): Promise<void> => {
