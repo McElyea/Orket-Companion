@@ -6,6 +6,8 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 1. `python -m orket_extension_sdk.validate . --json`
 2. `python -m orket_extension_sdk.import_scan src --json`
 3. `python -m orket.interfaces.orket_bundle_cli ext validate C:\Source\Orket-Extensions\Companion --json`
+4. If `orket` is not importable in the current environment, run:
+   - PowerShell: ``$env:PYTHONPATH='C:\Source\Orket'; python -m orket.interfaces.orket_bundle_cli ext validate C:\Source\Orket-Extensions\Companion --json``
 
 ## Companion UI stack (MVP)
 1. React + Vite + TypeScript
