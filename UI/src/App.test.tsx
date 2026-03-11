@@ -508,6 +508,25 @@ describe("Companion App", () => {
     expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
   });
 
+  it("Layer: contract. fails closed to fallback for unsupported local avatar asset types.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    await user.selectOptions(screen.getByLabelText("Avatar Mode"), "avatar");
+    await user.selectOptions(screen.getByLabelText("Avatar Renderer"), "vrm");
+    await user.clear(screen.getByLabelText("Avatar Asset Ref (local)"));
+    await user.type(screen.getByLabelText("Avatar Asset Ref (local)"), "assets/avatar.exe");
+
+    expect(screen.queryByAltText("Companion avatar")).toBeNull();
+    expect(
+      screen.getByText("Unsupported avatar asset type; allowed formats include images and VRM/GLTF."),
+    ).toBeTruthy();
+    expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
+  });
+
   it("Layer: contract. logs a non-fatal migration warning and falls back when persisted avatar prefs are invalid.", async () => {
     window.localStorage.setItem(
       AVATAR_PREFS_STORAGE_KEY,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDefaultAvatarPrefs,
   isLocalAvatarAssetRef,
+  isSupportedAvatarAssetRef,
   parseAvatarPrefsFromUnknown,
 } from "./avatar_prefs";
 
@@ -51,5 +52,13 @@ describe("avatar_prefs", () => {
     expect(isLocalAvatarAssetRef("/images/avatar.png")).toBe(true);
     expect(isLocalAvatarAssetRef("https://example.com/avatar.png")).toBe(false);
     expect(isLocalAvatarAssetRef("C:\\avatars\\face.png")).toBe(false);
+  });
+
+  it("Layer: contract. enforces supported avatar asset extensions.", () => {
+    expect(isSupportedAvatarAssetRef("assets/avatar.vrm")).toBe(true);
+    expect(isSupportedAvatarAssetRef("assets/avatar.png")).toBe(true);
+    expect(isSupportedAvatarAssetRef("assets/avatar.gltf")).toBe(true);
+    expect(isSupportedAvatarAssetRef("assets/avatar.exe")).toBe(false);
+    expect(isSupportedAvatarAssetRef("assets/avatar")).toBe(false);
   });
 });

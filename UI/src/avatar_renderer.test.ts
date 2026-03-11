@@ -42,4 +42,20 @@ describe("avatar_renderer", () => {
     expect(decision.assetPolicyAllowed).toBe(false);
     expect(decision.fallbackReason).toContain("disabled");
   });
+
+  it("Layer: contract. fails closed to fallback when asset type is unsupported.", () => {
+    const prefs = createDefaultAvatarPrefs();
+    prefs.mode = "avatar";
+    prefs.renderer = "vrm";
+    prefs.asset_ref = "assets/avatar.exe";
+    const decision = resolveAvatarRenderDecision({
+      prefs,
+      assetLoadFailed: false,
+    });
+    expect(decision.fallbackActive).toBe(true);
+    expect(decision.renderAssetRef).toBeNull();
+    expect(decision.assetPolicyAllowed).toBe(true);
+    expect(decision.assetTypeAllowed).toBe(false);
+    expect(decision.fallbackReason).toContain("Unsupported");
+  });
 });

@@ -19,7 +19,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 ## Avatar foundation contract (current)
 1. UI-local persisted settings use `avatar_prefs_v1` (`mode`, `renderer`, `asset_ref`, `motion_profile`, `fallback_policy`).
 2. Settings migration fails closed to safe defaults and emits a non-fatal warning event (`avatar.settings_migration_failed`).
-3. Local-only avatar asset policy is enforced; remote URLs fail closed to fallback rendering.
+3. Local-only avatar asset policy is enforced; remote URLs and unsupported file types fail closed to fallback rendering.
 4. Renderer seam is explicit (`fallback` and `vrm`) with deterministic fallback activation when assets are missing, blocked, or fail to load.
 5. Lifecycle state precedence is deterministic (`speaking > listening > thinking > idle`) through the avatar lifecycle coordinator.
 6. Avatar observability emits the baseline vocabulary (`avatar.renderer_selected`, `avatar.asset_load_*`, `avatar.fallback_activated`, `avatar.state_changed`, `avatar.lipsync_*`) with rate-limited repeated warning events.

@@ -1,5 +1,5 @@
 import type { AvatarPrefsV1 } from "./types";
-import { isLocalAvatarAssetRef } from "./avatar_prefs";
+import { isLocalAvatarAssetRef, isSupportedAvatarAssetRef } from "./avatar_prefs";
 
 export interface NormalizedAvatarState {
   primary_state: "idle" | "listening" | "thinking" | "speaking";
@@ -103,6 +103,7 @@ export interface AvatarRenderDecision {
   rendererId: AvatarPrefsV1["renderer"];
   hasAssetRef: boolean;
   assetPolicyAllowed: boolean;
+  assetTypeAllowed: boolean;
   renderAssetRef: string | null;
   fallbackActive: boolean;
   fallbackReason: string;
@@ -120,11 +121,13 @@ export function resolveAvatarRenderDecision({
   const normalizedAssetRef = String(prefs.asset_ref || "").trim();
   const hasAssetRef = normalizedAssetRef.length > 0;
   const assetPolicyAllowed = isLocalAvatarAssetRef(prefs.asset_ref);
+  const assetTypeAllowed = isSupportedAvatarAssetRef(prefs.asset_ref);
   if (prefs.mode === "off") {
     return {
       rendererId: "fallback",
       hasAssetRef,
       assetPolicyAllowed,
+      assetTypeAllowed,
       renderAssetRef: null,
       fallbackActive: true,
       fallbackReason: "Avatar mode is off.",
@@ -135,6 +138,7 @@ export function resolveAvatarRenderDecision({
       rendererId: "fallback",
       hasAssetRef,
       assetPolicyAllowed,
+      assetTypeAllowed,
       renderAssetRef: null,
       fallbackActive: true,
       fallbackReason: "Fallback renderer selected.",
@@ -145,9 +149,21 @@ export function resolveAvatarRenderDecision({
       rendererId: "vrm",
       hasAssetRef,
       assetPolicyAllowed,
+      assetTypeAllowed,
       renderAssetRef: null,
       fallbackActive: true,
       fallbackReason: "No avatar asset configured.",
+    };
+  }
+  if (!assetTypeAllowed) {
+    return {
+      rendererId: "fallback",
+      hasAssetRef,
+      assetPolicyAllowed,
+      assetTypeAllowed,
+      renderAssetRef: null,
+      fallbackActive: true,
+      fallbackReason: "Unsupported avatar asset type; using safe fallback.",
     };
   }
   if (!assetPolicyAllowed) {
@@ -155,6 +171,7 @@ export function resolveAvatarRenderDecision({
       rendererId: "fallback",
       hasAssetRef,
       assetPolicyAllowed,
+      assetTypeAllowed,
       renderAssetRef: null,
       fallbackActive: true,
       fallbackReason: "Remote avatar assets are disabled; using safe fallback.",
@@ -165,6 +182,7 @@ export function resolveAvatarRenderDecision({
       rendererId: "fallback",
       hasAssetRef,
       assetPolicyAllowed,
+      assetTypeAllowed,
       renderAssetRef: null,
       fallbackActive: true,
       fallbackReason: "Avatar asset failed to load; using safe fallback.",
@@ -174,6 +192,7 @@ export function resolveAvatarRenderDecision({
     rendererId: "vrm",
     hasAssetRef,
     assetPolicyAllowed,
+    assetTypeAllowed,
     renderAssetRef: normalizedAssetRef,
     fallbackActive: false,
     fallbackReason: "",

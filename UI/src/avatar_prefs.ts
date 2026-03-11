@@ -5,6 +5,17 @@ export const AVATAR_PREFS_STORAGE_KEY = "companion:avatar-prefs:v1";
 const ALLOWED_AVATAR_MODES: readonly AvatarMode[] = ["off", "fallback", "avatar"];
 const ALLOWED_AVATAR_RENDERERS: readonly AvatarRenderer[] = ["fallback", "vrm"];
 const ALLOWED_MOTION_PROFILES: readonly AvatarMotionProfile[] = ["default", "reduced"];
+const ALLOWED_AVATAR_ASSET_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+  ".vrm",
+  ".glb",
+  ".gltf",
+]);
 
 export interface AvatarPrefsLoadResult {
   prefs: AvatarPrefsV1;
@@ -152,4 +163,27 @@ export function isLocalAvatarAssetRef(value: string | null): boolean {
     return false;
   }
   return true;
+}
+
+export function isSupportedAvatarAssetRef(value: string | null): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  const queryStart = normalized.indexOf("?");
+  const hashStart = normalized.indexOf("#");
+  let end = normalized.length;
+  if (queryStart >= 0) {
+    end = Math.min(end, queryStart);
+  }
+  if (hashStart >= 0) {
+    end = Math.min(end, hashStart);
+  }
+  const pathOnly = normalized.slice(0, end);
+  const lastDot = pathOnly.lastIndexOf(".");
+  if (lastDot < 0) {
+    return false;
+  }
+  const extension = pathOnly.slice(lastDot);
+  return ALLOWED_AVATAR_ASSET_EXTENSIONS.has(extension);
 }

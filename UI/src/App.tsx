@@ -399,6 +399,7 @@ export function App(): JSX.Element {
     [avatarLoadFailed, avatarPrefs],
   );
   const avatarAssetAllowed = avatarRenderDecision.assetPolicyAllowed;
+  const avatarAssetTypeAllowed = avatarRenderDecision.assetTypeAllowed;
   const hasAvatarAssetRef = avatarRenderDecision.hasAssetRef;
   const avatarFallbackActive = avatarRenderDecision.fallbackActive;
   const avatarPrimaryState = useMemo(
@@ -1307,6 +1308,9 @@ export function App(): JSX.Element {
                 </p>
                 {!avatarAssetAllowed && hasAvatarAssetRef ? (
                   <p className={styles.helperText}>Remote avatar assets are disabled for this lane.</p>
+                ) : null}
+                {!avatarAssetTypeAllowed && hasAvatarAssetRef ? (
+                  <p className={styles.helperText}>Unsupported avatar asset type; allowed formats include images and VRM/GLTF.</p>
                 ) : null}
 
                 <div className={styles.inlineButtons}>
