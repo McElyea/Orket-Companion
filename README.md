@@ -48,6 +48,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
      - PowerShell: `.\scripts\run.ps1`
      - Unix: `./scripts/run.sh`
 3. Open the printed URL (the run script auto-falls to the next open port if needed).
+4. For live speaking/lipsync verification, ensure a local Piper binary is available on PATH (or set `ORKET_TTS_PIPER_BIN`) and configure `ORKET_TTS_BACKEND=piper` with a valid `ORKET_TTS_PIPER_MODEL_PATH`.
 
 ## Quick live smoke checks
 1. `Invoke-RestMethod http://127.0.0.1:3000/api/status`
