@@ -55,6 +55,8 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 2. `Invoke-RestMethod http://127.0.0.1:3000/api/chat -Method Post -Headers @{Origin='http://127.0.0.1:3000'} -ContentType 'application/json' -Body '{"session_id":"smoke","message":"hello"}'`
 3. Reproducible Phase D baseline probe (host + gateway + chat + voice synth + avatar control-feed):
    - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion`
+   - Add `--runs <N>` for repeated baseline samples with aggregate latency statistics.
+   - Add `--output <path>` to write canonical JSON results for later comparison.
    - Add `--include-audio` only when full `audio_b64` payload is required in output.
    - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.
 
