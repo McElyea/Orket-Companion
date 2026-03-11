@@ -24,7 +24,12 @@ import {
 } from "./avatar_control_events";
 import { createAvatarObservability } from "./avatar_observability";
 import { deriveAvatarPrimaryState } from "./avatar_lifecycle";
-import { createAvatarRenderer, resolveAvatarRenderDecision } from "./avatar_renderer";
+import {
+  createAvatarRenderer,
+  extractAvatarControlSignalUpdate,
+  resolveAvatarRenderDecision,
+} from "./avatar_renderer";
+import type { AvatarControlEventEnvelopeV1 } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
 import type {
   AvatarPrefsV1,
@@ -342,6 +347,8 @@ export function App(): JSX.Element {
   const [provider, setProvider] = useState<CompanionProvider>(DEFAULT_PROVIDER);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [availableModels, setAvailableModels] = useState<string[]>([DEFAULT_MODEL]);
+  const [avatarExpressionCue, setAvatarExpressionCue] = useState<string | null>(null);
+  const [avatarGestureCue, setAvatarGestureCue] = useState<string | null>(null);
   const modelSelectionRef = useRef(DEFAULT_MODEL);
   const modelCatalogCacheRef = useRef<ModelCatalogCache>(createDefaultModelCatalogCache());
   const modelCatalogRequestSeqRef = useRef<Record<CompanionProvider, number>>({
@@ -466,8 +473,38 @@ export function App(): JSX.Element {
     }));
   }, []);
 
+  const applyAvatarControlEvent = useCallback(
+    (
+      event: AvatarControlEventEnvelopeV1,
+      warningType: "avatar.control_event_apply_failed" | "avatar.external_control_event_apply_failed",
+    ): void => {
+      try {
+        avatarRendererRef.current?.applyControlEvent(event);
+      } catch (error) {
+        console.warn(warningType, {
+          type: event.type,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+      const signalUpdate = extractAvatarControlSignalUpdate(event);
+      if (!signalUpdate) {
+        return;
+      }
+      if (signalUpdate.expression) {
+        setAvatarExpressionCue(signalUpdate.expression);
+      }
+      if (signalUpdate.gesture) {
+        setAvatarGestureCue(signalUpdate.gesture);
+      }
+    },
+    [],
+  );
+
   const dispatchAvatarControlEvent = useCallback(
-    (type: string, payload: Record<string, unknown>): void => {
+    (
+      type: string,
+      payload: Record<string, unknown>,
+    ): void => {
       avatarControlEventSeqRef.current += 1;
       const parsed = parseAvatarControlEventEnvelope({
         type,
@@ -487,16 +524,9 @@ export function App(): JSX.Element {
       if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
         return;
       }
-      try {
-        avatarRendererRef.current?.applyControlEvent(parsed.event);
-      } catch (error) {
-        console.warn("avatar.control_event_apply_failed", {
-          type: parsed.event.type,
-          error: error instanceof Error ? error.message : "unknown_error",
-        });
-      }
+      applyAvatarControlEvent(parsed.event, "avatar.control_event_apply_failed");
     },
-    [sessionId],
+    [applyAvatarControlEvent, sessionId],
   );
 
   useEffect(() => {
@@ -512,20 +542,13 @@ export function App(): JSX.Element {
       if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
         return;
       }
-      try {
-        avatarRendererRef.current?.applyControlEvent(parsed.event);
-      } catch (error) {
-        console.warn("avatar.external_control_event_apply_failed", {
-          type: parsed.event.type,
-          error: error instanceof Error ? error.message : "unknown_error",
-        });
-      }
+      applyAvatarControlEvent(parsed.event, "avatar.external_control_event_apply_failed");
     };
     window.addEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
     return () => {
       window.removeEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
     };
-  }, []);
+  }, [applyAvatarControlEvent]);
 
   useEffect(() => {
     if (!initialAvatarPrefsLoad.migrationWarning) {
@@ -542,6 +565,8 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setAvatarLoadFailed(false);
+    setAvatarExpressionCue(null);
+    setAvatarGestureCue(null);
   }, [avatarPrefs.asset_ref, avatarPrefs.mode, avatarPrefs.renderer]);
 
   useEffect(() => {
@@ -1103,6 +1128,8 @@ export function App(): JSX.Element {
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
             avatarPrimaryState={avatarPrimaryState}
+            avatarExpressionCue={avatarExpressionCue}
+            avatarGestureCue={avatarGestureCue}
             onAvatarError={handleAvatarAssetError}
           />
         )}
@@ -1118,6 +1145,8 @@ export function App(): JSX.Element {
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
             avatarPrimaryState={avatarPrimaryState}
+            avatarExpressionCue={avatarExpressionCue}
+            avatarGestureCue={avatarGestureCue}
             onAvatarError={handleAvatarAssetError}
           />
         ) : (
@@ -1680,6 +1709,8 @@ interface PresencePanelProps {
   avatarFallbackActive: boolean;
   avatarFallbackReason: string;
   avatarPrimaryState: "idle" | "listening" | "thinking" | "speaking";
+  avatarExpressionCue: string | null;
+  avatarGestureCue: string | null;
   onAvatarError: () => void;
 }
 
@@ -1693,6 +1724,8 @@ function PresencePanel({
   avatarFallbackActive,
   avatarFallbackReason,
   avatarPrimaryState,
+  avatarExpressionCue,
+  avatarGestureCue,
   onAvatarError,
 }: PresencePanelProps): JSX.Element {
   const normalizedAssetRef = String(avatarRenderAssetRef || "").trim();
@@ -1725,6 +1758,16 @@ function PresencePanel({
           <span className={styles.statusValue}>{mood}</span>
         </div>
         <p className={styles.helperText}>{avatarFallbackActive ? avatarFallbackReason : "Avatar asset loaded."}</p>
+        {avatarExpressionCue ? (
+          <p className={styles.helperText} data-testid="avatar-expression-cue">
+            Expression cue: {avatarExpressionCue}
+          </p>
+        ) : null}
+        {avatarGestureCue ? (
+          <p className={styles.helperText} data-testid="avatar-gesture-cue">
+            Gesture cue: {avatarGestureCue}
+          </p>
+        ) : null}
         {motionProfile === "reduced" ? (
           <p className={styles.helperText}>Reduced motion is enabled.</p>
         ) : null}

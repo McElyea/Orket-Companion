@@ -18,6 +18,11 @@ export interface AvatarControlEventEnvelopeV1 {
   payload: Record<string, unknown>;
 }
 
+export interface AvatarControlSignalUpdate {
+  expression?: string;
+  gesture?: string;
+}
+
 export interface AvatarRenderer {
   id: "fallback" | "vrm" | string;
   init(): Promise<void>;
@@ -33,6 +38,18 @@ interface RendererState {
   suspended: boolean;
   latestState: NormalizedAvatarState | null;
   latestAssetRef: string | null;
+  latestExpression: string | null;
+  latestGesture: string | null;
+  latestControlEventType: string | null;
+}
+
+export interface AvatarRendererDebugSnapshot {
+  suspended: boolean;
+  latestState: NormalizedAvatarState | null;
+  latestAssetRef: string | null;
+  latestExpression: string | null;
+  latestGesture: string | null;
+  latestControlEventType: string | null;
 }
 
 class InMemoryAvatarRenderer implements AvatarRenderer {
@@ -41,6 +58,9 @@ class InMemoryAvatarRenderer implements AvatarRenderer {
     suspended: false,
     latestState: null,
     latestAssetRef: null,
+    latestExpression: null,
+    latestGesture: null,
+    latestControlEventType: null,
   };
 
   constructor(id: "fallback" | "vrm") {
@@ -60,8 +80,18 @@ class InMemoryAvatarRenderer implements AvatarRenderer {
     this.state.latestState = state;
   }
 
-  applyControlEvent(_event: AvatarControlEventEnvelopeV1): void {
-    // Control events are additive and non-authoritative at this phase.
+  applyControlEvent(event: AvatarControlEventEnvelopeV1): void {
+    this.state.latestControlEventType = event.type;
+    const signalUpdate = extractAvatarControlSignalUpdate(event);
+    if (!signalUpdate) {
+      return;
+    }
+    if (signalUpdate.expression) {
+      this.state.latestExpression = signalUpdate.expression;
+    }
+    if (signalUpdate.gesture) {
+      this.state.latestGesture = signalUpdate.gesture;
+    }
   }
 
   suspend(_reason: "perf" | "hidden" | "degraded"): void {
@@ -75,8 +105,22 @@ class InMemoryAvatarRenderer implements AvatarRenderer {
   async dispose(): Promise<void> {
     this.state.latestState = null;
     this.state.latestAssetRef = null;
+    this.state.latestExpression = null;
+    this.state.latestGesture = null;
+    this.state.latestControlEventType = null;
     this.state.suspended = false;
     return Promise.resolve();
+  }
+
+  getDebugSnapshot(): AvatarRendererDebugSnapshot {
+    return {
+      suspended: this.state.suspended,
+      latestState: this.state.latestState ? { ...this.state.latestState } : null,
+      latestAssetRef: this.state.latestAssetRef,
+      latestExpression: this.state.latestExpression,
+      latestGesture: this.state.latestGesture,
+      latestControlEventType: this.state.latestControlEventType,
+    };
   }
 }
 
@@ -90,6 +134,39 @@ export class VrmAvatarRenderer extends InMemoryAvatarRenderer {
   constructor() {
     super("vrm");
   }
+}
+
+const CONTROL_SIGNAL_VALUE_PATTERN = /^[a-zA-Z0-9 _.-]{1,64}$/;
+
+function normalizeControlSignalValue(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized || !CONTROL_SIGNAL_VALUE_PATTERN.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+export function extractAvatarControlSignalUpdate(
+  event: AvatarControlEventEnvelopeV1,
+): AvatarControlSignalUpdate | null {
+  if (event.type === "avatar.expression") {
+    const expression = normalizeControlSignalValue(event.payload.expression);
+    if (!expression) {
+      return null;
+    }
+    return { expression };
+  }
+  if (event.type === "avatar.gesture") {
+    const gesture = normalizeControlSignalValue(event.payload.gesture);
+    if (!gesture) {
+      return null;
+    }
+    return { gesture };
+  }
+  return null;
 }
 
 export function createAvatarRenderer(rendererId: AvatarPrefsV1["renderer"]): AvatarRenderer {

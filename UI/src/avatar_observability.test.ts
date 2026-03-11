@@ -45,4 +45,29 @@ describe("avatar_observability", () => {
     logger.emit("avatar.asset_load_failed", { reason: "two" }, { rateLimitKey: "asset:two" });
     expect(sink).toHaveBeenCalledTimes(2);
   });
+
+  it("Layer: contract. redacts sensitive payload keys and strips query/token data from asset refs.", () => {
+    const sink = vi.fn();
+    const logger = createAvatarObservability({ sink });
+
+    logger.emit("avatar.asset_load_failed", {
+      asset_ref: "https://example.com/avatar.vrm?token=secret#anchor",
+      message: "user private message",
+      prompt_content: "model prompt text",
+      audio_b64: "AAABAA==",
+      nested: {
+        authorization: "Bearer abc123",
+        safe_value: "ok",
+      },
+      reason: "bad_asset",
+    });
+
+    const event = sink.mock.calls[0][0];
+    expect(event.payload.asset_ref).toBe("https://example.com/avatar.vrm");
+    expect(event.payload.reason).toBe("bad_asset");
+    expect(event.payload.message).toBeUndefined();
+    expect(event.payload.prompt_content).toBeUndefined();
+    expect(event.payload.audio_b64).toBeUndefined();
+    expect(event.payload.nested).toEqual({ safe_value: "ok" });
+  });
 });

@@ -533,6 +533,50 @@ describe("Companion App", () => {
     });
   });
 
+  it("Layer: integration. applies supported external expression and gesture events as additive avatar cues.", async () => {
+    installFetchMock();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+    expect(screen.getByText("idle")).toBeTruthy();
+
+    window.dispatchEvent(
+      new CustomEvent("companion:avatar-control-event", {
+        detail: {
+          type: "avatar.expression",
+          version: "avatar_event_v1",
+          session_id: "session-1",
+          ts: "2026-03-11T00:00:00.000Z",
+          idempotency_key: "expression-1",
+          payload: { expression: "smile" },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("avatar-expression-cue").textContent).toContain("Expression cue: smile");
+    });
+    expect(screen.getByText("idle")).toBeTruthy();
+
+    window.dispatchEvent(
+      new CustomEvent("companion:avatar-control-event", {
+        detail: {
+          type: "avatar.gesture",
+          version: "avatar_event_v1",
+          session_id: "session-1",
+          ts: "2026-03-11T00:00:01.000Z",
+          idempotency_key: "gesture-1",
+          payload: { gesture: "wave" },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("avatar-gesture-cue").textContent).toContain("Gesture cue: wave");
+    });
+    expect(screen.getByText("idle")).toBeTruthy();
+  });
+
   it("Layer: contract. restores avatar_prefs_v1 from storage and renders local avatar asset when enabled.", async () => {
     window.localStorage.setItem(
       AVATAR_PREFS_STORAGE_KEY,
