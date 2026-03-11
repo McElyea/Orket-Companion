@@ -19,6 +19,51 @@ interface FetchMockOptions {
   avatarControlFeedEvents?: Array<Record<string, unknown>>;
 }
 
+interface MockBufferSource {
+  buffer: AudioBuffer | null;
+  onended: (() => void) | null;
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+}
+
+function installAudioContextMock(): { sources: MockBufferSource[] } {
+  const sources: MockBufferSource[] = [];
+  const context = {
+    state: "running",
+    currentTime: 0,
+    destination: {},
+    createBuffer: (channels: number, frameCount: number, sampleRate: number) => {
+      const channelData = Array.from({ length: channels }, () => new Float32Array(frameCount));
+      return {
+        duration: frameCount / Math.max(sampleRate, 1),
+        numberOfChannels: channels,
+        getChannelData: (channel: number) => channelData[channel] || new Float32Array(frameCount),
+      } as unknown as AudioBuffer;
+    },
+    createBufferSource: () => {
+      const source: MockBufferSource = {
+        buffer: null,
+        onended: null,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+      sources.push(source);
+      return source as unknown as AudioBufferSourceNode;
+    },
+    resume: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+  } as unknown as AudioContext;
+
+  vi.stubGlobal("AudioContext", vi.fn(() => context));
+  vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  return { sources };
+}
+
 const DEFAULT_CONFIG = {
   mode: {
     role_id: "general_assistant",
@@ -303,6 +348,38 @@ describe("Companion App", () => {
       const synthCall = [...calls].reverse().find((call) => call.path === "/api/voice/synthesize");
       const payload = asRecord(synthCall?.body);
       expect(payload?.text).toBe("mock companion reply");
+    });
+  });
+
+  it("Layer: integration. interrupts active playback before starting a new TTS playback.", async () => {
+    const calls = installFetchMock({ ttsAvailable: true });
+    const audioHarness = installAudioContextMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    const composer = screen.getByPlaceholderText("Type your message and press Send");
+    await user.type(composer, "first playback");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.path === "/api/chat")).toBe(true);
+    });
+
+    const speakButton = screen.getByRole("button", { name: /speak last reply/i });
+    await user.click(speakButton);
+
+    await waitFor(() => {
+      expect(audioHarness.sources.length).toBe(1);
+    });
+
+    await user.click(speakButton);
+    await waitFor(() => {
+      expect(audioHarness.sources.length).toBe(2);
+      expect(audioHarness.sources[0].stop).toHaveBeenCalledTimes(1);
+      expect(audioHarness.sources[0].disconnect).toHaveBeenCalledTimes(1);
+      expect(calls.filter((call) => call.path === "/api/voice/synthesize").length).toBeGreaterThanOrEqual(2);
     });
   });
 
