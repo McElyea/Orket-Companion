@@ -416,6 +416,41 @@ describe("Companion App", () => {
     });
   });
 
+  it("Layer: contract. reduced motion keeps voice pickup wave inactive even when voice capture starts.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    await user.selectOptions(screen.getByLabelText("Motion Profile"), "reduced");
+    expect(screen.getByText("Reduced motion is enabled.")).toBeTruthy();
+
+    const indicator = screen.getByTestId("voice-pickup-wave");
+    expect(indicator.getAttribute("data-active")).toBe("false");
+
+    await user.click(screen.getByRole("button", { name: /start/i }));
+    await waitFor(() => {
+      expect(indicator.getAttribute("data-active")).toBe("false");
+    });
+  });
+
+  it("Layer: contract. persists reduced-motion avatar preference across reload.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+    await user.selectOptions(screen.getByLabelText("Motion Profile"), "reduced");
+    expect((screen.getByLabelText("Motion Profile") as HTMLSelectElement).value).toBe("reduced");
+
+    cleanup();
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+    expect((screen.getByLabelText("Motion Profile") as HTMLSelectElement).value).toBe("reduced");
+    expect(screen.getByText("Reduced motion is enabled.")).toBeTruthy();
+  });
+
   it("Layer: contract. supports keyboard traversal to chat composer controls without a left rail.", async () => {
     installFetchMock();
     const user = userEvent.setup();
