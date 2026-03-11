@@ -11,6 +11,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from companion_app.avatar_control_events import (
+    InMemoryAvatarControlEventStore,
+    parse_avatar_control_event_envelope,
+)
 from companion_extension.api_client import CompanionApiClient
 
 
@@ -64,6 +68,7 @@ _MAX_CHAT_MESSAGE_BYTES = 8_000
 _MAX_AUDIO_B64_BYTES = 8_000_000
 _MAX_SYNTH_TEXT_BYTES = 4_000
 _MAX_CADENCE_TEXT_BYTES = 8_000
+_avatar_control_event_store = InMemoryAvatarControlEventStore()
 
 
 def _flag_enabled(name: str, *, default: bool) -> bool:
@@ -248,6 +253,58 @@ async def chat(req: ChatRequest, request: Request) -> dict[str, Any]:
         )
     except httpx.HTTPError as exc:
         _raise_gateway_error(exc)
+
+
+@app.post("/api/avatar/control-events")
+async def avatar_control_events_publish(request: Request) -> dict[str, Any]:
+    _enforce_gateway_request_policy(request)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return {
+            "ok": False,
+            "accepted": False,
+            "error_code": "avatar_event_payload_invalid",
+            "error_message": "Avatar control-event payload must be valid JSON.",
+        }
+
+    ok, event, error = parse_avatar_control_event_envelope(payload)
+    if not ok or not event:
+        return {
+            "ok": False,
+            "accepted": False,
+            "error_code": error,
+            "error_message": "Avatar control-event was rejected by envelope validation.",
+        }
+
+    publish_result = _avatar_control_event_store.publish(event)
+    return {
+        "ok": bool(publish_result.get("accepted")),
+        "accepted": bool(publish_result.get("accepted")),
+        "duplicate": bool(publish_result.get("duplicate")),
+        "seq": publish_result.get("seq"),
+    }
+
+
+@app.get("/api/avatar/control-events")
+async def avatar_control_events_feed(
+    session_id: str,
+    request: Request,
+    after_seq: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    _enforce_gateway_request_policy(request)
+    feed = _avatar_control_event_store.list_events(
+        session_id=session_id,
+        after_seq=after_seq,
+        limit=limit,
+    )
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "events": feed["events"],
+        "latest_seq": feed["latest_seq"],
+    }
 
 
 @app.post("/api/session/clear-memory")

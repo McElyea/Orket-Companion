@@ -16,6 +16,7 @@ interface FetchMockOptions {
   emptyOllamaCatalog?: boolean;
   failLmstudioCatalog?: boolean;
   ttsAvailable?: boolean;
+  avatarControlFeedEvents?: Array<Record<string, unknown>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -64,6 +65,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function installFetchMock(options: FetchMockOptions = {}): RecordedCall[] {
   const calls: RecordedCall[] = [];
+  const avatarControlFeedEvents = [...(options.avatarControlFeedEvents || [])];
+  let avatarControlFeedSeq = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const requestUrl =
       typeof input === "string"
@@ -211,6 +214,27 @@ function installFetchMock(options: FetchMockOptions = {}): RecordedCall[] {
         model: "mock-model",
         latency_ms: 5,
         text_only_degraded: false,
+      });
+    }
+
+    if (method === "GET" && url.pathname === "/api/avatar/control-events") {
+      const afterSeq = Number(url.searchParams.get("after_seq") ?? "0");
+      const limit = Math.max(1, Number(url.searchParams.get("limit") ?? "50"));
+      const sessionId = url.searchParams.get("session_id") ?? "companion-main";
+      const delivered: Array<Record<string, unknown>> = [];
+      while (avatarControlFeedEvents.length > 0 && delivered.length < limit) {
+        avatarControlFeedSeq += 1;
+        const next = avatarControlFeedEvents.shift() || {};
+        delivered.push({
+          seq: avatarControlFeedSeq,
+          ...next,
+        });
+      }
+      return jsonResponse({
+        ok: true,
+        session_id: sessionId,
+        events: delivered.filter((event) => Number((event as { seq?: unknown }).seq || 0) > afterSeq),
+        latest_seq: avatarControlFeedSeq,
       });
     }
 
@@ -571,6 +595,40 @@ describe("Companion App", () => {
       }),
     );
 
+    await waitFor(() => {
+      expect(screen.getByTestId("avatar-gesture-cue").textContent).toContain("Gesture cue: wave");
+    });
+    expect(screen.getByText("idle")).toBeTruthy();
+  });
+
+  it("Layer: integration. ingests gateway avatar control-event feed and applies additive cues.", async () => {
+    installFetchMock({
+      avatarControlFeedEvents: [
+        {
+          type: "avatar.expression",
+          version: "avatar_event_v1",
+          session_id: "companion-main",
+          ts: "2026-03-11T00:00:10.000Z",
+          idempotency_key: "feed-expression-1",
+          payload: { expression: "grin" },
+        },
+        {
+          type: "avatar.gesture",
+          version: "avatar_event_v1",
+          session_id: "companion-main",
+          ts: "2026-03-11T00:00:11.000Z",
+          idempotency_key: "feed-gesture-1",
+          payload: { gesture: "wave" },
+        },
+      ],
+    });
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("avatar-expression-cue").textContent).toContain("Expression cue: grin");
+    });
     await waitFor(() => {
       expect(screen.getByTestId("avatar-gesture-cue").textContent).toContain("Gesture cue: wave");
     });

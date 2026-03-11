@@ -1,4 +1,4 @@
-import type { AvatarPrefsV1 } from "./types";
+import type { AvatarControlEventEnvelopeV1, AvatarPrefsV1 } from "./types";
 import { isLocalAvatarAssetRef, isSupportedAvatarAssetRef } from "./avatar_prefs";
 
 export interface NormalizedAvatarState {
@@ -7,15 +7,6 @@ export interface NormalizedAvatarState {
   mouth_open: number;
   fallback_active: boolean;
   asset_ref: string | null;
-}
-
-export interface AvatarControlEventEnvelopeV1 {
-  type: string;
-  version: "avatar_event_v1";
-  session_id: string;
-  ts: string;
-  idempotency_key: string;
-  payload: Record<string, unknown>;
 }
 
 export interface AvatarControlSignalUpdate {

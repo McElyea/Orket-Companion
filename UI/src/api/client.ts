@@ -1,4 +1,7 @@
 import type {
+  AvatarControlEventEnvelopeV1,
+  AvatarControlEventFeedResponse,
+  AvatarControlEventPublishResponse,
   ChatRequest,
   ChatResponse,
   ClearSessionMemoryResponse,
@@ -52,6 +55,26 @@ export class CompanionApiClient {
       method: "POST",
       body: JSON.stringify(request),
     });
+  }
+
+  async publishAvatarControlEvent(event: AvatarControlEventEnvelopeV1): Promise<AvatarControlEventPublishResponse> {
+    return this.request<AvatarControlEventPublishResponse>("/avatar/control-events", {
+      method: "POST",
+      body: JSON.stringify(event),
+    });
+  }
+
+  async avatarControlEventFeed(
+    sessionId: string,
+    afterSeq: number,
+    limit: number = 50,
+  ): Promise<AvatarControlEventFeedResponse> {
+    const params = new URLSearchParams({
+      session_id: String(sessionId || "").trim(),
+      after_seq: String(Math.max(0, Math.floor(afterSeq || 0))),
+      limit: String(Math.max(1, Math.min(200, Math.floor(limit || 50)))),
+    });
+    return this.request<AvatarControlEventFeedResponse>(`/avatar/control-events?${params.toString()}`);
   }
 
   async clearSessionMemory(sessionId: string): Promise<ClearSessionMemoryResponse> {

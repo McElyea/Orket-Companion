@@ -23,6 +23,8 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 4. Renderer seam is explicit (`fallback` and `vrm`) with deterministic fallback activation when assets are missing, blocked, or fail to load.
 5. Lifecycle state precedence is deterministic (`speaking > listening > thinking > idle`) through the avatar lifecycle coordinator.
 6. Avatar observability emits the baseline vocabulary (`avatar.renderer_selected`, `avatar.asset_load_*`, `avatar.fallback_activated`, `avatar.state_changed`, `avatar.lipsync_*`) with rate-limited repeated warning events.
+7. Optional gateway-backed avatar control-event feed is available at `/api/avatar/control-events` (`POST` publish + `GET` feed) with envelope validation and idempotency-safe sequencing.
+8. Speaking mouth-open baseline is playback-derived from decoded audio amplitude with reduced-motion capping, and stops immediately on playback end/interruption.
 
 ## Build frontend (when editing UI source)
 1. `npm --prefix UI install`

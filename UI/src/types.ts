@@ -100,6 +100,35 @@ export interface VoiceSynthesizeResponse {
   error_message: string;
 }
 
+export interface AvatarControlEventEnvelopeV1 {
+  type: string;
+  version: "avatar_event_v1";
+  session_id: string;
+  ts: string;
+  idempotency_key: string;
+  payload: Record<string, unknown>;
+}
+
+export interface AvatarControlEventPublishResponse {
+  ok: boolean;
+  accepted: boolean;
+  duplicate?: boolean;
+  seq?: number | null;
+  error_code?: string | null;
+  error_message?: string;
+}
+
+export interface AvatarControlEventFeedEvent extends AvatarControlEventEnvelopeV1 {
+  seq: number;
+}
+
+export interface AvatarControlEventFeedResponse {
+  ok: boolean;
+  session_id: string;
+  events: AvatarControlEventFeedEvent[];
+  latest_seq: number;
+}
+
 export interface ConfigResponse {
   ok: boolean;
   session_id: string;

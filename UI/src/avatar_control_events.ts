@@ -1,4 +1,4 @@
-import type { AvatarControlEventEnvelopeV1 } from "./avatar_renderer";
+import type { AvatarControlEventEnvelopeV1 } from "./types";
 
 export interface AvatarControlEventParseResult {
   ok: boolean;

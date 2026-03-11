@@ -30,9 +30,9 @@ import {
   extractAvatarControlSignalUpdate,
   resolveAvatarRenderDecision,
 } from "./avatar_renderer";
-import type { AvatarControlEventEnvelopeV1 } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
 import type {
+  AvatarControlEventEnvelopeV1,
   AvatarPrefsV1,
   CompanionConfig,
   CompanionConfigScope,
@@ -372,6 +372,7 @@ export function App(): JSX.Element {
   const avatarRendererRef = useRef<ReturnType<typeof createAvatarRenderer> | null>(null);
   const avatarControlEventDeduperRef = useRef(createAvatarControlEventDeduper());
   const avatarControlEventSeqRef = useRef(0);
+  const avatarControlEventFeedSeqRef = useRef(0);
   const avatarObservabilityRef = useRef(createAvatarObservability());
   const previousAvatarStateRef = useRef<"idle" | "listening" | "thinking" | "speaking" | null>(null);
   const previousAvatarFallbackRef = useRef<boolean | null>(null);
@@ -559,6 +560,50 @@ export function App(): JSX.Element {
       window.removeEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
     };
   }, [applyAvatarControlEvent]);
+
+  useEffect(() => {
+    let disposed = false;
+    const pollFeed = async (): Promise<void> => {
+      try {
+        const payload = await api.avatarControlEventFeed(sessionId, avatarControlEventFeedSeqRef.current, 50);
+        if (disposed || !payload.ok) {
+          return;
+        }
+        for (const feedEvent of payload.events || []) {
+          const parsed = parseAvatarControlEventEnvelope(feedEvent);
+          if (!parsed.ok || !parsed.event) {
+            console.warn("avatar.control_event_feed_parse_failed", {
+              error: parsed.error,
+            });
+            continue;
+          }
+          if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
+            continue;
+          }
+          applyAvatarControlEvent(parsed.event, "avatar.external_control_event_apply_failed");
+        }
+        const latestSeq = Number(payload.latest_seq || 0);
+        if (latestSeq > avatarControlEventFeedSeqRef.current) {
+          avatarControlEventFeedSeqRef.current = latestSeq;
+        }
+      } catch (error) {
+        if (!disposed) {
+          console.warn("avatar.control_event_feed_poll_failed", {
+            error: error instanceof Error ? error.message : "unknown_error",
+          });
+        }
+      }
+    };
+
+    void pollFeed();
+    const timer = window.setInterval(() => {
+      void pollFeed();
+    }, 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [api, applyAvatarControlEvent, sessionId]);
 
   useEffect(() => {
     if (!initialAvatarPrefsLoad.migrationWarning) {
