@@ -448,6 +448,26 @@ describe("Companion App", () => {
     expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
   });
 
+  it("Layer: integration. emits required avatar observability events during normal UI transitions.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+    const diagnosticsWindow = window as unknown as {
+      __COMPANION_AVATAR_EVENTS__?: Array<{ type: string; payload?: Record<string, unknown> }>;
+    };
+    diagnosticsWindow.__COMPANION_AVATAR_EVENTS__ = [];
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    await user.click(screen.getByRole("button", { name: /start/i }));
+    await waitFor(() => {
+      const eventTypes = (diagnosticsWindow.__COMPANION_AVATAR_EVENTS__ || []).map((event) => event.type);
+      expect(eventTypes).toContain("avatar.renderer_selected");
+      expect(eventTypes).toContain("avatar.state_changed");
+      expect(eventTypes).toContain("avatar.fallback_activated");
+    });
+  });
+
   it("Layer: contract. restores avatar_prefs_v1 from storage and renders local avatar asset when enabled.", async () => {
     window.localStorage.setItem(
       AVATAR_PREFS_STORAGE_KEY,

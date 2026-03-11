@@ -22,6 +22,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 3. Local-only avatar asset policy is enforced; remote URLs fail closed to fallback rendering.
 4. Renderer seam is explicit (`fallback` and `vrm`) with deterministic fallback activation when assets are missing, blocked, or fail to load.
 5. Lifecycle state precedence is deterministic (`speaking > listening > thinking > idle`) through the avatar lifecycle coordinator.
+6. Avatar observability emits the baseline vocabulary (`avatar.renderer_selected`, `avatar.asset_load_*`, `avatar.fallback_activated`, `avatar.state_changed`, `avatar.lipsync_*`) with rate-limited repeated warning events.
 
 ## Build frontend (when editing UI source)
 1. `npm --prefix UI install`

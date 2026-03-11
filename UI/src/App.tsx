@@ -22,6 +22,7 @@ import {
   createAvatarControlEventDeduper,
   parseAvatarControlEventEnvelope,
 } from "./avatar_control_events";
+import { createAvatarObservability } from "./avatar_observability";
 import { deriveAvatarPrimaryState } from "./avatar_lifecycle";
 import { createAvatarRenderer, resolveAvatarRenderDecision } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
@@ -357,6 +358,9 @@ export function App(): JSX.Element {
   const avatarRendererRef = useRef<ReturnType<typeof createAvatarRenderer> | null>(null);
   const avatarControlEventDeduperRef = useRef(createAvatarControlEventDeduper());
   const avatarControlEventSeqRef = useRef(0);
+  const avatarObservabilityRef = useRef(createAvatarObservability());
+  const previousAvatarStateRef = useRef<"idle" | "listening" | "thinking" | "speaking" | null>(null);
+  const previousAvatarFallbackRef = useRef<boolean | null>(null);
   const setModelSelection = useCallback((nextModel: string): void => {
     modelSelectionRef.current = nextModel;
     setModel(nextModel);
@@ -406,6 +410,42 @@ export function App(): JSX.Element {
       }),
     [sending, ttsSpeaking, voicePickupActive],
   );
+
+  useEffect(() => {
+    avatarObservabilityRef.current.emit("avatar.renderer_selected", {
+      mode: avatarPrefs.mode,
+      renderer_id: avatarRenderDecision.rendererId,
+    });
+  }, [avatarPrefs.mode, avatarRenderDecision.rendererId]);
+
+  useEffect(() => {
+    if (previousAvatarStateRef.current === avatarPrimaryState) {
+      return;
+    }
+    avatarObservabilityRef.current.emit("avatar.state_changed", {
+      from_state: previousAvatarStateRef.current,
+      to_state: avatarPrimaryState,
+    });
+    previousAvatarStateRef.current = avatarPrimaryState;
+  }, [avatarPrimaryState]);
+
+  useEffect(() => {
+    if (previousAvatarFallbackRef.current === null) {
+      previousAvatarFallbackRef.current = avatarFallbackActive;
+      if (avatarFallbackActive) {
+        avatarObservabilityRef.current.emit("avatar.fallback_activated", {
+          reason: avatarRenderDecision.fallbackReason,
+        });
+      }
+      return;
+    }
+    if (!previousAvatarFallbackRef.current && avatarFallbackActive) {
+      avatarObservabilityRef.current.emit("avatar.fallback_activated", {
+        reason: avatarRenderDecision.fallbackReason,
+      });
+    }
+    previousAvatarFallbackRef.current = avatarFallbackActive;
+  }, [avatarFallbackActive, avatarRenderDecision.fallbackReason]);
 
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>): void => {
     setUiPreferences((current) => {
@@ -481,12 +521,35 @@ export function App(): JSX.Element {
     void (async () => {
       try {
         await renderer.init();
+        if (avatarRenderDecision.renderAssetRef) {
+          avatarObservabilityRef.current.emit("avatar.asset_load_started", {
+            renderer_id: renderer.id,
+            asset_ref: avatarRenderDecision.renderAssetRef,
+          });
+        }
         await renderer.loadAsset(avatarRenderDecision.renderAssetRef);
+        if (avatarRenderDecision.renderAssetRef) {
+          avatarObservabilityRef.current.emit("avatar.asset_load_succeeded", {
+            renderer_id: renderer.id,
+            asset_ref: avatarRenderDecision.renderAssetRef,
+          });
+        }
       } catch (error) {
         if (!active) {
           return;
         }
         setAvatarLoadFailed(true);
+        avatarObservabilityRef.current.emit(
+          "avatar.asset_load_failed",
+          {
+            renderer_id: renderer.id,
+            asset_ref: avatarRenderDecision.renderAssetRef,
+            error: error instanceof Error ? error.message : "unknown_error",
+          },
+          {
+            rateLimitKey: `avatar_asset_load_failed:${renderer.id}:${String(avatarRenderDecision.renderAssetRef || "")}`,
+          },
+        );
         console.warn("avatar.renderer_init_failed", {
           renderer_id: renderer.id,
           error: error instanceof Error ? error.message : "unknown_error",
@@ -517,6 +580,17 @@ export function App(): JSX.Element {
       });
     } catch (error) {
       setAvatarLoadFailed(true);
+      avatarObservabilityRef.current.emit(
+        "avatar.asset_load_failed",
+        {
+          renderer_id: renderer.id,
+          asset_ref: avatarRenderDecision.renderAssetRef,
+          error: error instanceof Error ? error.message : "unknown_error",
+        },
+        {
+          rateLimitKey: `avatar_apply_state_failed:${renderer.id}`,
+        },
+      );
       console.warn("avatar.renderer_apply_state_failed", {
         renderer_id: renderer.id,
         error: error instanceof Error ? error.message : "unknown_error",
@@ -539,6 +613,9 @@ export function App(): JSX.Element {
       }
       source.disconnect();
       audioSourceRef.current = null;
+      avatarObservabilityRef.current.emit("avatar.lipsync_stopped", {
+        reason: "manual_stop",
+      });
     }
     setTtsSpeaking(false);
   }, []);
@@ -809,6 +886,15 @@ export function App(): JSX.Element {
         if (!payload.ok || !payload.audio_b64) {
           setTtsSpeaking(false);
           const failureMessage = payload.error_message || "No TTS backend configured.";
+          avatarObservabilityRef.current.emit(
+            "avatar.lipsync_failed",
+            {
+              reason: failureMessage,
+            },
+            {
+              rateLimitKey: `avatar_lipsync_failed:${failureMessage}`,
+            },
+          );
           setNotice(`TTS unavailable: ${failureMessage}`);
           return;
         }
@@ -831,16 +917,31 @@ export function App(): JSX.Element {
             audioSourceRef.current = null;
             setTtsSpeaking(false);
             dispatchAvatarControlEvent("speech.end", { source: "tts_playback" });
+            avatarObservabilityRef.current.emit("avatar.lipsync_stopped", {
+              reason: "playback_end",
+            });
           }
         };
         audioSourceRef.current = source;
         setTtsSpeaking(true);
         dispatchAvatarControlEvent("speech.start", { source: "tts_playback" });
+        avatarObservabilityRef.current.emit("avatar.lipsync_started", {
+          source: "tts_playback",
+        });
         source.start(0);
         setNotice(`Speaking with ${payload.voice_id || "default voice"}.`);
       } catch (error) {
         setTtsSpeaking(false);
         const detail = error instanceof Error ? error.message : "TTS request failed.";
+        avatarObservabilityRef.current.emit(
+          "avatar.lipsync_failed",
+          {
+            reason: detail,
+          },
+          {
+            rateLimitKey: `avatar_lipsync_failed:${detail}`,
+          },
+        );
         setNotice(`TTS error: ${detail}`);
       }
     },
@@ -934,6 +1035,20 @@ export function App(): JSX.Element {
   const sttUnavailable = Boolean(status?.text_only_degraded || (status && !status.stt_available));
 
   const statusToneClass = sttUnavailable ? styles.statusBadgeDegraded : styles.statusBadgeReady;
+  const handleAvatarAssetError = useCallback((): void => {
+    setAvatarLoadFailed(true);
+    avatarObservabilityRef.current.emit(
+      "avatar.asset_load_failed",
+      {
+        renderer_id: avatarRenderDecision.rendererId,
+        asset_ref: avatarRenderDecision.renderAssetRef,
+        error: "image_onerror",
+      },
+      {
+        rateLimitKey: `avatar_image_onerror:${String(avatarRenderDecision.renderAssetRef || "")}`,
+      },
+    );
+  }, [avatarRenderDecision.renderAssetRef, avatarRenderDecision.rendererId]);
 
   return (
     <div className={styles.appShell} data-font-personality={fontPersonality}>
@@ -958,7 +1073,7 @@ export function App(): JSX.Element {
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
             avatarPrimaryState={avatarPrimaryState}
-            onAvatarError={() => setAvatarLoadFailed(true)}
+            onAvatarError={handleAvatarAssetError}
           />
         )}
 
@@ -973,7 +1088,7 @@ export function App(): JSX.Element {
             avatarFallbackActive={avatarFallbackActive}
             avatarFallbackReason={avatarRenderDecision.fallbackReason}
             avatarPrimaryState={avatarPrimaryState}
-            onAvatarError={() => setAvatarLoadFailed(true)}
+            onAvatarError={handleAvatarAssetError}
           />
         ) : (
           <ChatPanel
