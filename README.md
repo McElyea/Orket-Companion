@@ -66,6 +66,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.
 4. Advanced UI-only probe options (run directly when you need longer FPS windows or avatar-mode-specific sampling):
    - `node UI/scripts/live_ui_interrupt_probe.mjs --base-url http://127.0.0.1:3000 --provider ollama --model llama3.1:8b --raf-sample-sec 60 --speaking-raf-sample-sec 60 --avatar-mode avatar`
+   - Probe output includes `performance_metrics.synced_notice_ms` (UI-ready/TTI proxy), navigation timings, and idle/speaking RAF FPS samples.
 
 ## Gateway hardening
 1. Missing `COMPANION_API_KEY` fails closed with `E_COMPANION_GATEWAY_API_KEY_REQUIRED`.

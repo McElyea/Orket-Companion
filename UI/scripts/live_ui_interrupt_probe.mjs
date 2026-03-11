@@ -152,6 +152,9 @@ async function main() {
     await page.goto(args.baseUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await page.getByText("Synced with host.", { exact: false }).waitFor({ timeout: timeoutMs });
     summary.checks.synced_notice = true;
+    summary.performance_metrics = {
+      synced_notice_ms: await page.evaluate(() => Math.round(performance.now() * 100) / 100),
+    };
     if (args.provider) {
       await page.selectOption("#provider-id", args.provider, { timeout: timeoutMs });
       await page.waitForTimeout(350);
@@ -175,7 +178,9 @@ async function main() {
       await page.selectOption("#avatar-mode", args.avatarMode, { timeout: timeoutMs });
       await page.waitForTimeout(350);
     }
-    summary.performance_metrics = await page.evaluate(async () => {
+    summary.performance_metrics = {
+      ...(summary.performance_metrics || {}),
+      ...(await page.evaluate(async () => {
       const navigation =
         (performance.getEntriesByType("navigation")[0] &&
           performance.getEntriesByType("navigation")[0].toJSON()) ||
@@ -189,7 +194,8 @@ async function main() {
             }
           : null,
       };
-    });
+      })),
+    };
     summary.performance_metrics.raf_sample = await sampleRaf(page, args.rafSampleSec);
 
     const speakButton = page.getByRole("button", { name: "Speak Last Reply" });
