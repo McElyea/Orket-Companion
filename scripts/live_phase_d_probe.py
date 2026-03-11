@@ -28,6 +28,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--piper-voices-dir", default="")
     parser.add_argument("--piper-bin", default="piper")
     parser.add_argument("--startup-wait-sec", type=float, default=2.0)
+    parser.add_argument("--http-timeout-sec", type=float, default=60.0)
+    parser.add_argument(
+        "--include-audio",
+        action="store_true",
+        help="Keep full audio_b64 payload in output (default omits it and reports length only).",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +78,18 @@ def _timed_json_request(
     }
 
 
+def _summarize_voice_payload(result: dict[str, Any], *, include_audio: bool) -> None:
+    body = result.get("body")
+    if not isinstance(body, dict):
+        return
+    audio_b64 = body.get("audio_b64")
+    if not isinstance(audio_b64, str):
+        return
+    body["audio_b64_len"] = len(audio_b64)
+    if not include_audio:
+        body["audio_b64"] = ""
+
+
 def main() -> int:
     args = _parse_args()
     _configure_environment(args)
@@ -105,7 +123,7 @@ def main() -> int:
     try:
         time.sleep(args.startup_wait_sec)
         base = f"http://127.0.0.1:{args.gateway_port}"
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=float(args.http_timeout_sec)) as client:
             summary["results"]["status"] = _timed_json_request(client, "GET", f"{base}/api/status")
             summary["results"]["chat"] = _timed_json_request(
                 client,
@@ -130,6 +148,10 @@ def main() -> int:
                     "emotion_hint": "neutral",
                     "speed": 1.0,
                 },
+            )
+            _summarize_voice_payload(
+                summary["results"]["voice_synthesize"],
+                include_audio=bool(args.include_audio),
             )
             summary["results"]["avatar_event_publish"] = _timed_json_request(
                 client,

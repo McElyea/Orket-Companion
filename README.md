@@ -48,13 +48,15 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
      - PowerShell: `.\scripts\run.ps1`
      - Unix: `./scripts/run.sh`
 3. Open the printed URL (the run script auto-falls to the next open port if needed).
-4. For live speaking/lipsync verification, ensure a local Piper binary is available on PATH (or set `ORKET_TTS_PIPER_BIN`) and configure `ORKET_TTS_BACKEND=piper` with a valid `ORKET_TTS_PIPER_MODEL_PATH`.
+4. For live speaking/lipsync verification, set `ORKET_TTS_BACKEND=piper` with a valid `ORKET_TTS_PIPER_MODEL_PATH` (and optional `ORKET_TTS_PIPER_BIN`). If no PATH shim is present for `piper`, runtime falls back to `python -m piper` when the module is installed.
 
 ## Quick live smoke checks
 1. `Invoke-RestMethod http://127.0.0.1:3000/api/status`
 2. `Invoke-RestMethod http://127.0.0.1:3000/api/chat -Method Post -Headers @{Origin='http://127.0.0.1:3000'} -ContentType 'application/json' -Body '{"session_id":"smoke","message":"hello"}'`
 3. Reproducible Phase D baseline probe (host + gateway + chat + voice synth + avatar control-feed):
    - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion`
+   - Add `--include-audio` only when full `audio_b64` payload is required in output.
+   - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.
 
 ## Gateway hardening
 1. Missing `COMPANION_API_KEY` fails closed with `E_COMPANION_GATEWAY_API_KEY_REQUIRED`.
