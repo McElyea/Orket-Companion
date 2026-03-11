@@ -64,6 +64,8 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - Add `--ui-headed` for visible browser mode when debugging the UI interruption probe.
    - Add `--include-audio` only when full `audio_b64` payload is required in output.
    - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.
+4. Advanced UI-only probe options (run directly when you need longer FPS windows or avatar-mode-specific sampling):
+   - `node UI/scripts/live_ui_interrupt_probe.mjs --base-url http://127.0.0.1:3000 --raf-sample-sec 60 --speaking-raf-sample-sec 60 --avatar-mode avatar`
 
 ## Gateway hardening
 1. Missing `COMPANION_API_KEY` fails closed with `E_COMPANION_GATEWAY_API_KEY_REQUIRED`.

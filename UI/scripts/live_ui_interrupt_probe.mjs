@@ -6,6 +6,9 @@ function parseArgs(argv) {
     message: "phase b ui interruption probe",
     timeoutSec: 90,
     headless: true,
+    rafSampleSec: 2,
+    speakingRafSampleSec: 5,
+    avatarMode: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = String(argv[index] || "");
@@ -31,8 +34,57 @@ function parseArgs(argv) {
       args.headless = false;
       continue;
     }
+    if (token === "--raf-sample-sec" && argv[index + 1]) {
+      const parsed = Number(argv[index + 1]);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        args.rafSampleSec = parsed;
+      }
+      index += 1;
+      continue;
+    }
+    if (token === "--speaking-raf-sample-sec" && argv[index + 1]) {
+      const parsed = Number(argv[index + 1]);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        args.speakingRafSampleSec = parsed;
+      }
+      index += 1;
+      continue;
+    }
+    if (token === "--avatar-mode" && argv[index + 1]) {
+      const candidate = String(argv[index + 1] || "").trim().toLowerCase();
+      if (candidate === "off" || candidate === "fallback" || candidate === "avatar") {
+        args.avatarMode = candidate;
+      }
+      index += 1;
+      continue;
+    }
   }
   return args;
+}
+
+async function sampleRaf(page, sampleSec) {
+  const sampleMs = Math.max(250, Math.floor(Number(sampleSec || 0) * 1000));
+  return page.evaluate(async ({ sampleMs: windowMs }) => {
+    const start = performance.now();
+    let frames = 0;
+    await new Promise((resolve) => {
+      const tick = (ts) => {
+        frames += 1;
+        if (ts - start >= windowMs) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const durationMs = Math.max(1, performance.now() - start);
+    return {
+      duration_ms: Math.round(durationMs * 100) / 100,
+      frames,
+      fps: Math.round((frames / (durationMs / 1000)) * 100) / 100,
+    };
+  }, { sampleMs });
 }
 
 async function main() {
@@ -67,6 +119,9 @@ async function main() {
     base_url: args.baseUrl,
     headless: args.headless,
     timeout_sec: args.timeoutSec,
+    raf_sample_sec: args.rafSampleSec,
+    speaking_raf_sample_sec: args.speakingRafSampleSec,
+    avatar_mode: args.avatarMode || null,
     request_counts: requestCounts,
     performance_metrics: null,
     checks: {
@@ -83,25 +138,15 @@ async function main() {
     await page.goto(args.baseUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await page.getByText("Synced with host.", { exact: false }).waitFor({ timeout: timeoutMs });
     summary.checks.synced_notice = true;
+    if (args.avatarMode) {
+      await page.selectOption("#avatar-mode", args.avatarMode, { timeout: timeoutMs });
+      await page.waitForTimeout(350);
+    }
     summary.performance_metrics = await page.evaluate(async () => {
       const navigation =
         (performance.getEntriesByType("navigation")[0] &&
           performance.getEntriesByType("navigation")[0].toJSON()) ||
         null;
-      const start = performance.now();
-      let frames = 0;
-      await new Promise((resolve) => {
-        const tick = (ts) => {
-          frames += 1;
-          if (ts - start >= 2000) {
-            resolve();
-            return;
-          }
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
-      const durationMs = Math.max(1, performance.now() - start);
       return {
         navigation_ms: navigation
           ? {
@@ -110,13 +155,9 @@ async function main() {
               load_event_end: Math.round(Number(navigation.loadEventEnd || 0) * 100) / 100,
             }
           : null,
-        raf_sample: {
-          duration_ms: Math.round(durationMs * 100) / 100,
-          frames,
-          fps: Math.round((frames / (durationMs / 1000)) * 100) / 100,
-        },
       };
     });
+    summary.performance_metrics.raf_sample = await sampleRaf(page, args.rafSampleSec);
 
     const speakButton = page.getByRole("button", { name: "Speak Last Reply" });
     const composer = page.getByPlaceholder("Type your message and press Send");
@@ -159,6 +200,7 @@ async function main() {
     );
     summary.checks.speak_started = true;
     summary.checks.stop_playback_observed = true;
+    summary.performance_metrics.speaking_raf_sample = await sampleRaf(page, args.speakingRafSampleSec);
 
     await stopButton.click({ timeout: timeoutMs });
     await page.waitForFunction(
