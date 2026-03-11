@@ -503,6 +503,36 @@ describe("Companion App", () => {
     });
   });
 
+  it("Layer: contract. fails closed on unsupported external avatar control-event versions.", async () => {
+    installFetchMock();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    window.dispatchEvent(
+      new CustomEvent("companion:avatar-control-event", {
+        detail: {
+          type: "avatar.expression",
+          version: "avatar_event_v2",
+          session_id: "session-1",
+          ts: "2026-03-11T00:00:00.000Z",
+          idempotency_key: "dup-1",
+          payload: { expression: "smile" },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        "avatar.external_control_event_parse_failed",
+        expect.objectContaining({
+          error: "avatar_event_version_unsupported",
+        }),
+      );
+    });
+  });
+
   it("Layer: contract. restores avatar_prefs_v1 from storage and renders local avatar asset when enabled.", async () => {
     window.localStorage.setItem(
       AVATAR_PREFS_STORAGE_KEY,

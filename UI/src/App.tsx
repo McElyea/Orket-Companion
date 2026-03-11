@@ -43,6 +43,7 @@ type FontPersonality = "girly" | "manly" | "neutral" | "weird" | "elegant" | "pl
 type ChatSide = "left" | "right";
 
 type PresenceMood = "neutral" | "warm" | "focused" | "curious";
+const AVATAR_CONTROL_EVENT_CHANNEL = "companion:avatar-control-event";
 
 const PROVIDER_OPTIONS: Array<{ value: CompanionProvider; label: string }> = [
   { value: "ollama", label: "Ollama" },
@@ -497,6 +498,34 @@ export function App(): JSX.Element {
     },
     [sessionId],
   );
+
+  useEffect(() => {
+    const onExternalControlEvent = (event: Event): void => {
+      const customEvent = event as CustomEvent<unknown>;
+      const parsed = parseAvatarControlEventEnvelope(customEvent.detail);
+      if (!parsed.ok || !parsed.event) {
+        console.warn("avatar.external_control_event_parse_failed", {
+          error: parsed.error,
+        });
+        return;
+      }
+      if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
+        return;
+      }
+      try {
+        avatarRendererRef.current?.applyControlEvent(parsed.event);
+      } catch (error) {
+        console.warn("avatar.external_control_event_apply_failed", {
+          type: parsed.event.type,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    };
+    window.addEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
+    return () => {
+      window.removeEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     if (!initialAvatarPrefsLoad.migrationWarning) {
