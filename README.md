@@ -57,7 +57,7 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion`
    - Add `--runs <N>` for repeated baseline samples with aggregate latency statistics.
    - Add `--output <path>` to write canonical JSON results for later comparison.
-   - Add `--ui-interrupt-probe` to execute a real browser interruption/cancel check (`Speak Last Reply` -> `Stop Playback`) against the live UI path.
+   - Add `--ui-interrupt-probe` to execute a real browser interruption/cancel check (`Speak Last Reply` -> `Stop Playback`) against the live UI path, including browser-side navigation timing and sampled FPS metrics.
    - Add `--ui-headed` for visible browser mode when debugging the UI interruption probe.
    - Add `--include-audio` only when full `audio_b64` payload is required in output.
    - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.

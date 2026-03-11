@@ -68,6 +68,7 @@ async function main() {
     headless: args.headless,
     timeout_sec: args.timeoutSec,
     request_counts: requestCounts,
+    performance_metrics: null,
     checks: {
       synced_notice: false,
       chat_request: false,
@@ -82,6 +83,40 @@ async function main() {
     await page.goto(args.baseUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await page.getByText("Synced with host.", { exact: false }).waitFor({ timeout: timeoutMs });
     summary.checks.synced_notice = true;
+    summary.performance_metrics = await page.evaluate(async () => {
+      const navigation =
+        (performance.getEntriesByType("navigation")[0] &&
+          performance.getEntriesByType("navigation")[0].toJSON()) ||
+        null;
+      const start = performance.now();
+      let frames = 0;
+      await new Promise((resolve) => {
+        const tick = (ts) => {
+          frames += 1;
+          if (ts - start >= 2000) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      const durationMs = Math.max(1, performance.now() - start);
+      return {
+        navigation_ms: navigation
+          ? {
+              response_end: Math.round(Number(navigation.responseEnd || 0) * 100) / 100,
+              dom_content_loaded_end: Math.round(Number(navigation.domContentLoadedEventEnd || 0) * 100) / 100,
+              load_event_end: Math.round(Number(navigation.loadEventEnd || 0) * 100) / 100,
+            }
+          : null,
+        raf_sample: {
+          duration_ms: Math.round(durationMs * 100) / 100,
+          frames,
+          fps: Math.round((frames / (durationMs / 1000)) * 100) / 100,
+        },
+      };
+    });
 
     const speakButton = page.getByRole("button", { name: "Speak Last Reply" });
     const composer = page.getByPlaceholder("Type your message and press Send");
