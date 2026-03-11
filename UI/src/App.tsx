@@ -14,8 +14,14 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import {
+  loadAvatarPrefsFromStorage,
+  persistAvatarPrefs,
+} from "./avatar_prefs";
+import { createAvatarRenderer, resolveAvatarRenderDecision } from "./avatar_renderer";
 import { CompanionApiClient } from "./api/client";
 import type {
+  AvatarPrefsV1,
   CompanionConfig,
   CompanionConfigScope,
   CompanionProvider,
@@ -313,6 +319,9 @@ export function App(): JSX.Element {
   const api = useMemo(() => new CompanionApiClient("/api"), []);
 
   const sessionId = "companion-main";
+  const initialAvatarPrefsLoad = useMemo(() => loadAvatarPrefsFromStorage(), []);
+  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefsV1>(initialAvatarPrefsLoad.prefs);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(() => readUiPreferences());
   const [chatDraft, setChatDraft] = useState("");
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -340,6 +349,7 @@ export function App(): JSX.Element {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const avatarRendererRef = useRef<ReturnType<typeof createAvatarRenderer> | null>(null);
   const setModelSelection = useCallback((nextModel: string): void => {
     modelSelectionRef.current = nextModel;
     setModel(nextModel);
@@ -365,7 +375,28 @@ export function App(): JSX.Element {
   );
   const panesSwapped = uiPreferences.chatSide === "left";
   const voiceStateToken = String(voiceState.state || "").trim().toLowerCase();
-  const voicePickupActive = voiceStateToken.length > 0 && !["stop", "idle", "inactive"].includes(voiceStateToken);
+  const voicePickupActive =
+    avatarPrefs.motion_profile !== "reduced" &&
+    voiceStateToken.length > 0 &&
+    !["stop", "idle", "inactive"].includes(voiceStateToken);
+  const avatarRenderDecision = useMemo(
+    () =>
+      resolveAvatarRenderDecision({
+        prefs: avatarPrefs,
+        assetLoadFailed: avatarLoadFailed,
+      }),
+    [avatarLoadFailed, avatarPrefs],
+  );
+  const avatarAssetAllowed = avatarRenderDecision.assetPolicyAllowed;
+  const hasAvatarAssetRef = avatarRenderDecision.hasAssetRef;
+  const avatarFallbackActive = avatarRenderDecision.fallbackActive;
+  const avatarPrimaryState: "idle" | "listening" | "thinking" | "speaking" = ttsSpeaking
+    ? "speaking"
+    : voicePickupActive
+      ? "listening"
+      : sending
+        ? "thinking"
+        : "idle";
 
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>): void => {
     setUiPreferences((current) => {
@@ -374,6 +405,87 @@ export function App(): JSX.Element {
       return next;
     });
   }, []);
+
+  const updateAvatarPrefs = useCallback((patch: Partial<AvatarPrefsV1>): void => {
+    setAvatarPrefs((current) => ({
+      ...current,
+      ...patch,
+      version: "avatar_prefs_v1",
+      fallback_policy: "always_safe",
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!initialAvatarPrefsLoad.migrationWarning) {
+      return;
+    }
+    console.warn("avatar.settings_migration_failed", {
+      warning: initialAvatarPrefsLoad.migrationWarning,
+    });
+  }, [initialAvatarPrefsLoad.migrationWarning]);
+
+  useEffect(() => {
+    persistAvatarPrefs(avatarPrefs);
+  }, [avatarPrefs]);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarPrefs.asset_ref, avatarPrefs.mode, avatarPrefs.renderer]);
+
+  useEffect(() => {
+    let active = true;
+    const renderer = createAvatarRenderer(avatarRenderDecision.rendererId);
+    avatarRendererRef.current = renderer;
+    void (async () => {
+      try {
+        await renderer.init();
+        await renderer.loadAsset(avatarRenderDecision.renderAssetRef);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        setAvatarLoadFailed(true);
+        console.warn("avatar.renderer_init_failed", {
+          renderer_id: renderer.id,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    })();
+    return () => {
+      active = false;
+      if (avatarRendererRef.current === renderer) {
+        avatarRendererRef.current = null;
+      }
+      void renderer.dispose().catch(() => undefined);
+    };
+  }, [avatarRenderDecision.renderAssetRef, avatarRenderDecision.rendererId]);
+
+  useEffect(() => {
+    const renderer = avatarRendererRef.current;
+    if (!renderer) {
+      return;
+    }
+    try {
+      renderer.applyState({
+        primary_state: avatarPrimaryState,
+        motion_profile: avatarPrefs.motion_profile,
+        mouth_open: avatarPrimaryState === "speaking" ? 1 : 0,
+        fallback_active: avatarFallbackActive,
+        asset_ref: avatarRenderDecision.renderAssetRef,
+      });
+    } catch (error) {
+      setAvatarLoadFailed(true);
+      console.warn("avatar.renderer_apply_state_failed", {
+        renderer_id: renderer.id,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+  }, [
+    avatarFallbackActive,
+    avatarPrefs.motion_profile,
+    avatarPrimaryState,
+    avatarRenderDecision.renderAssetRef,
+  ]);
 
   const stopAudioPlayback = useCallback((): void => {
     const source = audioSourceRef.current;
@@ -791,6 +903,12 @@ export function App(): JSX.Element {
             mood={presenceMood}
             sttUnavailable={sttUnavailable}
             voiceState={voiceState.state}
+            avatarMode={avatarPrefs.mode}
+            motionProfile={avatarPrefs.motion_profile}
+            avatarRenderAssetRef={avatarRenderDecision.renderAssetRef}
+            avatarFallbackActive={avatarFallbackActive}
+            avatarFallbackReason={avatarRenderDecision.fallbackReason}
+            onAvatarError={() => setAvatarLoadFailed(true)}
           />
         )}
 
@@ -799,6 +917,12 @@ export function App(): JSX.Element {
             mood={presenceMood}
             sttUnavailable={sttUnavailable}
             voiceState={voiceState.state}
+            avatarMode={avatarPrefs.mode}
+            motionProfile={avatarPrefs.motion_profile}
+            avatarRenderAssetRef={avatarRenderDecision.renderAssetRef}
+            avatarFallbackActive={avatarFallbackActive}
+            avatarFallbackReason={avatarRenderDecision.fallbackReason}
+            onAvatarError={() => setAvatarLoadFailed(true)}
           />
         ) : (
           <ChatPanel
@@ -950,6 +1074,74 @@ export function App(): JSX.Element {
                   <option value="right">Right</option>
                   <option value="left">Left</option>
                 </select>
+
+                <label className={styles.fieldLabel} htmlFor="avatar-mode">
+                  Avatar Mode
+                </label>
+                <select
+                  id="avatar-mode"
+                  className={`${styles.selectInput} ${styles.compactSelect}`}
+                  value={avatarPrefs.mode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value as AvatarPrefsV1["mode"];
+                    updateAvatarPrefs({
+                      mode: nextMode,
+                      renderer: nextMode === "avatar" ? avatarPrefs.renderer : "fallback",
+                    });
+                  }}
+                >
+                  <option value="off">Off</option>
+                  <option value="fallback">Fallback</option>
+                  <option value="avatar">Avatar</option>
+                </select>
+
+                <label className={styles.fieldLabel} htmlFor="avatar-renderer">
+                  Avatar Renderer
+                </label>
+                <select
+                  id="avatar-renderer"
+                  className={`${styles.selectInput} ${styles.compactSelect}`}
+                  value={avatarPrefs.renderer}
+                  onChange={(event) => updateAvatarPrefs({ renderer: event.target.value as AvatarPrefsV1["renderer"] })}
+                >
+                  <option value="fallback">Fallback</option>
+                  <option value="vrm">VRM</option>
+                </select>
+
+                <label className={styles.fieldLabel} htmlFor="avatar-motion-profile">
+                  Motion Profile
+                </label>
+                <select
+                  id="avatar-motion-profile"
+                  className={`${styles.selectInput} ${styles.compactSelect}`}
+                  value={avatarPrefs.motion_profile}
+                  onChange={(event) =>
+                    updateAvatarPrefs({ motion_profile: event.target.value as AvatarPrefsV1["motion_profile"] })
+                  }
+                >
+                  <option value="default">Default</option>
+                  <option value="reduced">Reduced</option>
+                </select>
+
+                <label className={styles.fieldLabel} htmlFor="avatar-asset-ref">
+                  Avatar Asset Ref (local)
+                </label>
+                <input
+                  id="avatar-asset-ref"
+                  className={styles.textInput}
+                  placeholder="assets/avatar.png"
+                  value={avatarPrefs.asset_ref || ""}
+                  onChange={(event) => {
+                    const nextRef = String(event.target.value || "").trim();
+                    updateAvatarPrefs({ asset_ref: nextRef ? nextRef : null });
+                  }}
+                />
+                <p className={styles.helperText}>
+                  Remote URLs are blocked. Companion always fails closed to fallback if asset policy is violated.
+                </p>
+                {!avatarAssetAllowed && hasAvatarAssetRef ? (
+                  <p className={styles.helperText}>Remote avatar assets are disabled for this lane.</p>
+                ) : null}
 
                 <div className={styles.inlineButtons}>
                   <button type="button" className={styles.primaryButton} onClick={() => void applySettings("session")}>
@@ -1283,13 +1475,28 @@ interface PresencePanelProps {
   mood: PresenceMood;
   voiceState: string;
   sttUnavailable: boolean;
+  avatarMode: AvatarPrefsV1["mode"];
+  motionProfile: AvatarPrefsV1["motion_profile"];
+  avatarRenderAssetRef: string | null;
+  avatarFallbackActive: boolean;
+  avatarFallbackReason: string;
+  onAvatarError: () => void;
 }
 
 function PresencePanel({
   mood,
   voiceState,
   sttUnavailable: _sttUnavailable,
+  avatarMode,
+  motionProfile,
+  avatarRenderAssetRef,
+  avatarFallbackActive,
+  avatarFallbackReason,
+  onAvatarError,
 }: PresencePanelProps): JSX.Element {
+  const normalizedAssetRef = String(avatarRenderAssetRef || "").trim();
+  const avatarCanRenderVrmAsset = normalizedAssetRef.length > 0;
+
   return (
     <section className={styles.panelSurface}>
       <header className={styles.panelHeader}>
@@ -1298,14 +1505,28 @@ function PresencePanel({
 
       <div className={styles.presenceStage}>
         <div className={`${styles.avatarFrame} ${voiceState === "start" ? styles.avatarListening : ""}`}>
-          <div className={styles.avatarFallback} data-testid="presence-avatar-fallback">
-            <UserRound size={58} aria-hidden="true" />
-          </div>
+          {avatarCanRenderVrmAsset ? (
+            <img
+              alt="Companion avatar"
+              className={styles.avatarImage}
+              src={normalizedAssetRef}
+              onError={onAvatarError}
+            />
+          ) : (
+            <div className={styles.avatarFallback} data-testid="presence-avatar-fallback">
+              <UserRound size={58} aria-hidden="true" />
+            </div>
+          )}
         </div>
 
         <div className={styles.moodChip}>
           <span className={styles.statusValue}>{mood}</span>
         </div>
+        <p className={styles.helperText}>{avatarFallbackActive ? avatarFallbackReason : "Avatar asset loaded."}</p>
+        {motionProfile === "reduced" ? (
+          <p className={styles.helperText}>Reduced motion is enabled.</p>
+        ) : null}
+        {avatarMode === "off" ? <p className={styles.helperText}>Presence remains active in fallback mode.</p> : null}
       </div>
     </section>
   );

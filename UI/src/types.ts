@@ -4,6 +4,19 @@ export type VoiceCommand = "start" | "stop" | "submit";
 
 export type CompanionProvider = "ollama" | "lmstudio" | "openai_compat";
 
+export type AvatarMode = "off" | "fallback" | "avatar";
+export type AvatarRenderer = "fallback" | "vrm";
+export type AvatarMotionProfile = "default" | "reduced";
+
+export interface AvatarPrefsV1 {
+  version: "avatar_prefs_v1";
+  mode: AvatarMode;
+  renderer: AvatarRenderer;
+  asset_ref: string | null;
+  motion_profile: AvatarMotionProfile;
+  fallback_policy: "always_safe";
+}
+
 export interface CompanionModeConfig {
   role_id: string;
   relationship_style: string;

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AVATAR_PREFS_STORAGE_KEY } from "./avatar_prefs";
 import { App } from "./App";
 
 interface RecordedCall {
@@ -426,6 +427,74 @@ describe("Companion App", () => {
     await screen.findByText(/synced with host/i);
     expect(screen.queryByAltText("Companion avatar")).toBeNull();
     expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
+  });
+
+  it("Layer: contract. restores avatar_prefs_v1 from storage and renders local avatar asset when enabled.", async () => {
+    window.localStorage.setItem(
+      AVATAR_PREFS_STORAGE_KEY,
+      JSON.stringify({
+        version: "avatar_prefs_v1",
+        mode: "avatar",
+        renderer: "vrm",
+        asset_ref: "assets/local-avatar.png",
+        motion_profile: "default",
+        fallback_policy: "always_safe",
+      }),
+    );
+    installFetchMock();
+
+    render(<App />);
+
+    await screen.findByText(/synced with host/i);
+    const avatarImage = screen.getByAltText("Companion avatar") as HTMLImageElement;
+    expect(avatarImage.getAttribute("src")).toBe("assets/local-avatar.png");
+    expect((screen.getByLabelText("Avatar Mode") as HTMLSelectElement).value).toBe("avatar");
+    expect((screen.getByLabelText("Avatar Renderer") as HTMLSelectElement).value).toBe("vrm");
+  });
+
+  it("Layer: contract. fails closed to fallback for disallowed remote avatar asset refs.", async () => {
+    installFetchMock();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    await user.selectOptions(screen.getByLabelText("Avatar Mode"), "avatar");
+    await user.selectOptions(screen.getByLabelText("Avatar Renderer"), "vrm");
+    await user.clear(screen.getByLabelText("Avatar Asset Ref (local)"));
+    await user.type(screen.getByLabelText("Avatar Asset Ref (local)"), "https://example.com/avatar.png");
+
+    expect(screen.queryByAltText("Companion avatar")).toBeNull();
+    expect(screen.getByText("Remote avatar assets are disabled for this lane.")).toBeTruthy();
+    expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
+  });
+
+  it("Layer: contract. logs a non-fatal migration warning and falls back when persisted avatar prefs are invalid.", async () => {
+    window.localStorage.setItem(
+      AVATAR_PREFS_STORAGE_KEY,
+      JSON.stringify({
+        version: "avatar_prefs_v1",
+        mode: "avatar",
+        renderer: "vrm",
+        asset_ref: "assets/local-avatar.png",
+        motion_profile: "default",
+        fallback_policy: "unsafe_policy",
+      }),
+    );
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    installFetchMock();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    expect(screen.queryByAltText("Companion avatar")).toBeNull();
+    expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "avatar.settings_migration_failed",
+      expect.objectContaining({
+        warning: "avatar_settings_v1_schema_invalid",
+      }),
+    );
   });
 
   it("Layer: contract. repopulates model catalog from lmstudio when provider is switched.", async () => {
