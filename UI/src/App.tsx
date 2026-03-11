@@ -24,6 +24,7 @@ import {
 } from "./avatar_control_events";
 import { createAvatarObservability } from "./avatar_observability";
 import { deriveAvatarPrimaryState } from "./avatar_lifecycle";
+import { computeAvatarMouthEnvelope, mouthOpenForPlaybackProgress } from "./avatar_lipsync";
 import {
   createAvatarRenderer,
   extractAvatarControlSignalUpdate,
@@ -343,6 +344,7 @@ export function App(): JSX.Element {
   const [ttsVoices, setTtsVoices] = useState<VoiceInfo[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState("");
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  const [avatarMouthOpen, setAvatarMouthOpen] = useState(0);
   const [fontPersonality, setFontPersonality] = useState<FontPersonality>("neutral");
   const [provider, setProvider] = useState<CompanionProvider>(DEFAULT_PROVIDER);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -363,6 +365,10 @@ export function App(): JSX.Element {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioPlaybackTimingRef = useRef<{ startContextTime: number; durationSeconds: number } | null>(null);
+  const mouthEnvelopeRef = useRef<number[]>([]);
+  const mouthAnimationFrameRef = useRef<number | null>(null);
+  const motionProfileRef = useRef<AvatarPrefsV1["motion_profile"]>(avatarPrefs.motion_profile);
   const avatarRendererRef = useRef<ReturnType<typeof createAvatarRenderer> | null>(null);
   const avatarControlEventDeduperRef = useRef(createAvatarControlEventDeduper());
   const avatarControlEventSeqRef = useRef(0);
@@ -419,6 +425,10 @@ export function App(): JSX.Element {
       }),
     [sending, ttsSpeaking, voicePickupActive],
   );
+
+  useEffect(() => {
+    motionProfileRef.current = avatarPrefs.motion_profile;
+  }, [avatarPrefs.motion_profile]);
 
   useEffect(() => {
     avatarObservabilityRef.current.emit("avatar.renderer_selected", {
@@ -629,7 +639,7 @@ export function App(): JSX.Element {
       renderer.applyState({
         primary_state: avatarPrimaryState,
         motion_profile: avatarPrefs.motion_profile,
-        mouth_open: avatarPrimaryState === "speaking" ? 1 : 0,
+        mouth_open: avatarPrimaryState === "speaking" ? avatarMouthOpen : 0,
         fallback_active: avatarFallbackActive,
         asset_ref: avatarRenderDecision.renderAssetRef,
       });
@@ -653,27 +663,73 @@ export function App(): JSX.Element {
     }
   }, [
     avatarFallbackActive,
+    avatarMouthOpen,
     avatarPrefs.motion_profile,
     avatarPrimaryState,
     avatarRenderDecision.renderAssetRef,
   ]);
 
+  const stopMouthAnimation = useCallback((): void => {
+    const frameHandle = mouthAnimationFrameRef.current;
+    if (frameHandle !== null) {
+      window.cancelAnimationFrame(frameHandle);
+      mouthAnimationFrameRef.current = null;
+    }
+    mouthEnvelopeRef.current = [];
+    audioPlaybackTimingRef.current = null;
+    setAvatarMouthOpen(0);
+  }, []);
+
+  const startMouthAnimation = useCallback(
+    (context: AudioContext, buffer: AudioBuffer): void => {
+      stopMouthAnimation();
+      mouthEnvelopeRef.current = computeAvatarMouthEnvelope(buffer);
+      audioPlaybackTimingRef.current = {
+        startContextTime: context.currentTime,
+        durationSeconds: Math.max(0.001, Number(buffer.duration || 0)),
+      };
+
+      const tick = (): void => {
+        const timing = audioPlaybackTimingRef.current;
+        if (!timing || audioSourceRef.current === null) {
+          mouthAnimationFrameRef.current = null;
+          setAvatarMouthOpen(0);
+          return;
+        }
+        const elapsed = Math.max(0, context.currentTime - timing.startContextTime);
+        const mouthOpen = mouthOpenForPlaybackProgress(
+          mouthEnvelopeRef.current,
+          elapsed,
+          timing.durationSeconds,
+          motionProfileRef.current,
+        );
+        setAvatarMouthOpen(mouthOpen);
+        mouthAnimationFrameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      tick();
+    },
+    [stopMouthAnimation],
+  );
+
   const stopAudioPlayback = useCallback((): void => {
     const source = audioSourceRef.current;
     if (source) {
+      audioSourceRef.current = null;
       try {
         source.stop();
       } catch {
         // Best effort stop on already-completed nodes.
       }
       source.disconnect();
-      audioSourceRef.current = null;
+      dispatchAvatarControlEvent("speech.end", { source: "manual_stop" });
       avatarObservabilityRef.current.emit("avatar.lipsync_stopped", {
         reason: "manual_stop",
       });
     }
+    stopMouthAnimation();
     setTtsSpeaking(false);
-  }, []);
+  }, [dispatchAvatarControlEvent, stopMouthAnimation]);
 
   const ensureAudioContext = useCallback((): AudioContext => {
     if (audioContextRef.current) {
@@ -939,6 +995,7 @@ export function App(): JSX.Element {
         setTtsSpeaking(true);
         const payload = await api.voiceSynthesize(normalized, selectedVoiceId || "", emotionHintOverride, 1.0);
         if (!payload.ok || !payload.audio_b64) {
+          stopMouthAnimation();
           setTtsSpeaking(false);
           const failureMessage = payload.error_message || "No TTS backend configured.";
           avatarObservabilityRef.current.emit(
@@ -970,6 +1027,7 @@ export function App(): JSX.Element {
         source.onended = () => {
           if (audioSourceRef.current === source) {
             audioSourceRef.current = null;
+            stopMouthAnimation();
             setTtsSpeaking(false);
             dispatchAvatarControlEvent("speech.end", { source: "tts_playback" });
             avatarObservabilityRef.current.emit("avatar.lipsync_stopped", {
@@ -978,14 +1036,16 @@ export function App(): JSX.Element {
           }
         };
         audioSourceRef.current = source;
+        source.start(0);
         setTtsSpeaking(true);
+        startMouthAnimation(context, buffer);
         dispatchAvatarControlEvent("speech.start", { source: "tts_playback" });
         avatarObservabilityRef.current.emit("avatar.lipsync_started", {
           source: "tts_playback",
         });
-        source.start(0);
         setNotice(`Speaking with ${payload.voice_id || "default voice"}.`);
       } catch (error) {
+        stopMouthAnimation();
         setTtsSpeaking(false);
         const detail = error instanceof Error ? error.message : "TTS request failed.";
         avatarObservabilityRef.current.emit(
@@ -1000,7 +1060,16 @@ export function App(): JSX.Element {
         setNotice(`TTS error: ${detail}`);
       }
     },
-    [api, dispatchAvatarControlEvent, ensureAudioContext, presenceMood, selectedVoiceId, stopAudioPlayback],
+    [
+      api,
+      dispatchAvatarControlEvent,
+      ensureAudioContext,
+      presenceMood,
+      selectedVoiceId,
+      startMouthAnimation,
+      stopAudioPlayback,
+      stopMouthAnimation,
+    ],
   );
 
   const handleChatSubmit = useCallback(
