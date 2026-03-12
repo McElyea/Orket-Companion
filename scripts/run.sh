@@ -8,6 +8,7 @@ cd "${repo_root}"
 ui_host="${COMPANION_UI_HOST:-127.0.0.1}"
 start_port="${COMPANION_UI_PORT:-3000}"
 max_port="${COMPANION_UI_MAX_PORT:-$((start_port + 20))}"
+verbose_logging="${COMPANION_VERBOSE_LOGGING:-}"
 host_api_candidates=(
   "http://127.0.0.1:8082"
   "http://127.0.0.1:18082"
@@ -95,13 +96,19 @@ if [ -z "${ui_port}" ]; then
   exit 1
 fi
 
-if [ "${ui_port}" != "${start_port}" ]; then
-  echo "Port ${start_port} is in use; using ${ui_port} instead."
-fi
+uvicorn_args=(
+  -m uvicorn companion_app.server:app
+  --app-dir src
+  --host "${ui_host}"
+  --port "${ui_port}"
+)
 
-echo "Companion host API: ${COMPANION_HOST_BASE_URL}"
-if [ -z "${COMPANION_API_KEY:-}" ]; then
-  echo "Warning: COMPANION_API_KEY is not set. Host-backed Companion API calls will fail closed until you set it." >&2
-fi
+case "${verbose_logging}" in
+  1|true|TRUE|True|yes|YES|on|ON)
+    ;;
+  *)
+    uvicorn_args+=(--no-access-log --log-level critical)
+    ;;
+esac
 
-python -m uvicorn companion_app.server:app --app-dir src --host "${ui_host}" --port "${ui_port}"
+python "${uvicorn_args[@]}"

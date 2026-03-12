@@ -10,6 +10,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -299,32 +300,53 @@ def _write_output_if_requested(summary: dict[str, Any], output_path_raw: str) ->
 def _run_ui_interrupt_probe(*, companion_root: str, base_url: str, args: argparse.Namespace) -> dict[str, Any]:
     ui_root = Path(companion_root) / "UI"
     runner = Path("scripts") / "live_ui_interrupt_probe.mjs"
-    cmd = ["node", str(runner), "--base-url", base_url, "--message", args.message, "--timeout-sec", str(float(args.ui_timeout_sec)), "--provider", args.provider, "--model", args.model]
-    if args.ui_headed:
-        cmd.append("--headed")
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(ui_root),
-    )
-    stdout = str(proc.stdout or "").strip()
-    result_payload: dict[str, Any]
-    try:
-        result_payload = json.loads(stdout) if stdout else {"ok": False, "error": "empty_ui_probe_stdout"}
-    except json.JSONDecodeError:
-        result_payload = {
-            "ok": False,
-            "error": "ui_probe_output_parse_failed",
-            "stdout": stdout,
-        }
-    result_payload["exit_code"] = int(proc.returncode)
-    if proc.stderr:
-        result_payload["stderr"] = proc.stderr.strip()
-    if proc.returncode != 0:
-        result_payload["ok"] = False
-    return result_payload
+    with tempfile.TemporaryDirectory(prefix="companion-ui-probe-") as temp_dir:
+        output_path = Path(temp_dir) / "ui_interrupt_probe.json"
+        cmd = [
+            "node",
+            str(runner),
+            "--base-url",
+            base_url,
+            "--message",
+            args.message,
+            "--timeout-sec",
+            str(float(args.ui_timeout_sec)),
+            "--provider",
+            args.provider,
+            "--model",
+            args.model,
+            "--output",
+            str(output_path),
+        ]
+        if args.ui_headed:
+            cmd.append("--headed")
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(ui_root),
+        )
+        result_payload: dict[str, Any]
+        if output_path.exists():
+            try:
+                result_payload = json.loads(output_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                result_payload = {
+                    "ok": False,
+                    "error": "ui_probe_output_parse_failed",
+                }
+        else:
+            result_payload = {
+                "ok": False,
+                "error": "ui_probe_output_missing",
+            }
+        result_payload["exit_code"] = int(proc.returncode)
+        if proc.stderr and proc.returncode != 0:
+            result_payload["stderr"] = proc.stderr.strip()
+        if proc.returncode != 0:
+            result_payload["ok"] = False
+        return result_payload
 
 
 def main() -> int:
@@ -337,10 +359,10 @@ def main() -> int:
     from orket.interfaces.api import app as host_app
 
     host_server = uvicorn.Server(
-        uvicorn.Config(host_app, host="127.0.0.1", port=args.host_port, log_level="warning"),
+        uvicorn.Config(host_app, host="127.0.0.1", port=args.host_port, log_level="critical", access_log=False),
     )
     gateway_server = uvicorn.Server(
-        uvicorn.Config(gateway_app, host="127.0.0.1", port=args.gateway_port, log_level="warning"),
+        uvicorn.Config(gateway_app, host="127.0.0.1", port=args.gateway_port, log_level="critical", access_log=False),
     )
 
     host_thread = threading.Thread(target=host_server.run, daemon=True)
@@ -414,10 +436,10 @@ def main() -> int:
         gateway_thread.join(timeout=6)
         host_thread.join(timeout=6)
 
-    output_path = _write_output_if_requested(summary, args.output)
+    output_path = str(args.output or "").strip()
     if output_path:
-        summary["output_path"] = output_path
-    print(json.dumps(summary, indent=2))
+        summary["output_path"] = str(Path(output_path).expanduser().resolve())
+        _write_output_if_requested(summary, output_path)
     return 0 if summary.get("ok") else 1
 
 

@@ -63,18 +63,19 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 1. `Invoke-RestMethod http://127.0.0.1:3000/api/status`
 2. `Invoke-RestMethod http://127.0.0.1:3000/api/chat -Method Post -Headers @{Origin='http://127.0.0.1:3000'} -ContentType 'application/json' -Body '{"session_id":"smoke","message":"hello"}'`
 3. Reproducible Phase D baseline probe (host + gateway + chat + voice synth + avatar control-feed):
-   - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion`
+   - `python scripts/live_phase_d_probe.py --orket-root C:\Source\Orket --companion-root C:\Source\Orket-Extensions\Companion --output .\tmp\phase-d-probe.json`
    - Add `--runs <N>` for repeated baseline samples with aggregate latency statistics.
    - Pin `--model llama3.1:8b` for lower-latency, more stable local chat responses when heavier defaults are slow or timeout-prone.
    - For TTS-enabled live probes, add `--enable-piper --piper-model-path C:\Source\Orket\data\voices\en_US-lessac-medium.onnx --piper-voices-dir C:\Source\Orket\data\voices`.
-   - Add `--output <path>` to write canonical JSON results for later comparison.
+   - The probe is silent by default and writes canonical JSON only when `--output <path>` is supplied.
    - Per run, the probe now captures `system_metrics_before` / `system_metrics_after` snapshots (CPU, memory, and GPU engine utilization) via Windows `typeperf` when available.
    - Add `--ui-interrupt-probe` to execute a real browser interruption/cancel check (`Speak Last Reply` -> `Stop Playback`) against the live UI path, including browser-side navigation timing and sampled FPS metrics.
    - Add `--ui-headed` for visible browser mode when debugging the UI interruption probe.
    - Add `--include-audio` only when full `audio_b64` payload is required in output.
    - Use `--http-timeout-sec <seconds>` if the local model is slow to respond on first warmup.
 4. Advanced UI-only probe options (run directly when you need longer FPS windows or avatar-mode-specific sampling):
-   - `node UI/scripts/live_ui_interrupt_probe.mjs --base-url http://127.0.0.1:3000 --provider ollama --model llama3.1:8b --raf-sample-sec 60 --speaking-raf-sample-sec 60 --avatar-mode avatar`
+   - `node UI/scripts/live_ui_interrupt_probe.mjs --base-url http://127.0.0.1:3000 --provider ollama --model llama3.1:8b --raf-sample-sec 60 --speaking-raf-sample-sec 60 --avatar-mode avatar --output .\tmp\ui-interrupt-probe.json`
+   - The UI probe is also silent by default and only writes JSON when `--output <path>` is supplied.
    - Probe output includes `performance_metrics.synced_notice_ms` (UI-ready/TTI proxy), navigation timings, and idle/speaking RAF FPS samples.
 
 ## Gateway hardening

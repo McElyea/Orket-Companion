@@ -485,18 +485,10 @@ export function App(): JSX.Element {
   }, []);
 
   const applyAvatarControlEvent = useCallback(
-    (
-      event: AvatarControlEventEnvelopeV1,
-      warningType: "avatar.control_event_apply_failed" | "avatar.external_control_event_apply_failed",
-    ): void => {
+    (event: AvatarControlEventEnvelopeV1): void => {
       try {
         avatarRendererRef.current?.applyControlEvent(event);
-      } catch (error) {
-        console.warn(warningType, {
-          type: event.type,
-          error: error instanceof Error ? error.message : "unknown_error",
-        });
-      }
+      } catch {}
       const signalUpdate = extractAvatarControlSignalUpdate(event);
       if (!signalUpdate) {
         return;
@@ -526,16 +518,12 @@ export function App(): JSX.Element {
         payload,
       });
       if (!parsed.ok || !parsed.event) {
-        console.warn("avatar.control_event_parse_failed", {
-          type,
-          error: parsed.error,
-        });
         return;
       }
       if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
         return;
       }
-      applyAvatarControlEvent(parsed.event, "avatar.control_event_apply_failed");
+      applyAvatarControlEvent(parsed.event);
     },
     [applyAvatarControlEvent, sessionId],
   );
@@ -545,15 +533,12 @@ export function App(): JSX.Element {
       const customEvent = event as CustomEvent<unknown>;
       const parsed = parseAvatarControlEventEnvelope(customEvent.detail);
       if (!parsed.ok || !parsed.event) {
-        console.warn("avatar.external_control_event_parse_failed", {
-          error: parsed.error,
-        });
         return;
       }
       if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
         return;
       }
-      applyAvatarControlEvent(parsed.event, "avatar.external_control_event_apply_failed");
+      applyAvatarControlEvent(parsed.event);
     };
     window.addEventListener(AVATAR_CONTROL_EVENT_CHANNEL, onExternalControlEvent as EventListener);
     return () => {
@@ -572,27 +557,18 @@ export function App(): JSX.Element {
         for (const feedEvent of payload.events || []) {
           const parsed = parseAvatarControlEventEnvelope(feedEvent);
           if (!parsed.ok || !parsed.event) {
-            console.warn("avatar.control_event_feed_parse_failed", {
-              error: parsed.error,
-            });
             continue;
           }
           if (!avatarControlEventDeduperRef.current.shouldProcess(parsed.event.idempotency_key)) {
             continue;
           }
-          applyAvatarControlEvent(parsed.event, "avatar.external_control_event_apply_failed");
+          applyAvatarControlEvent(parsed.event);
         }
         const latestSeq = Number(payload.latest_seq || 0);
         if (latestSeq > avatarControlEventFeedSeqRef.current) {
           avatarControlEventFeedSeqRef.current = latestSeq;
         }
-      } catch (error) {
-        if (!disposed) {
-          console.warn("avatar.control_event_feed_poll_failed", {
-            error: error instanceof Error ? error.message : "unknown_error",
-          });
-        }
-      }
+      } catch {}
     };
 
     void pollFeed();
@@ -604,15 +580,6 @@ export function App(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [api, applyAvatarControlEvent, sessionId]);
-
-  useEffect(() => {
-    if (!initialAvatarPrefsLoad.migrationWarning) {
-      return;
-    }
-    console.warn("avatar.settings_migration_failed", {
-      warning: initialAvatarPrefsLoad.migrationWarning,
-    });
-  }, [initialAvatarPrefsLoad.migrationWarning]);
 
   useEffect(() => {
     persistAvatarPrefs(avatarPrefs);
@@ -660,10 +627,6 @@ export function App(): JSX.Element {
             rateLimitKey: `avatar_asset_load_failed:${renderer.id}:${String(avatarRenderDecision.renderAssetRef || "")}`,
           },
         );
-        console.warn("avatar.renderer_init_failed", {
-          renderer_id: renderer.id,
-          error: error instanceof Error ? error.message : "unknown_error",
-        });
       }
     })();
     return () => {
@@ -701,10 +664,6 @@ export function App(): JSX.Element {
           rateLimitKey: `avatar_apply_state_failed:${renderer.id}`,
         },
       );
-      console.warn("avatar.renderer_apply_state_failed", {
-        renderer_id: renderer.id,
-        error: error instanceof Error ? error.message : "unknown_error",
-      });
     }
   }, [
     avatarFallbackActive,

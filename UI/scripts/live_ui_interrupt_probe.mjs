@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { chromium } from "playwright";
 
 function parseArgs(argv) {
@@ -11,6 +13,7 @@ function parseArgs(argv) {
     avatarMode: "",
     provider: "",
     model: "",
+    output: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = String(argv[index] || "");
@@ -70,8 +73,24 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (token === "--output" && argv[index + 1]) {
+      args.output = String(argv[index + 1] || "").trim();
+      index += 1;
+      continue;
+    }
   }
   return args;
+}
+
+async function writeSummaryIfRequested(outputPath, summary) {
+  const normalized = String(outputPath || "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const resolvedPath = resolve(normalized);
+  await mkdir(dirname(resolvedPath), { recursive: true });
+  await writeFile(resolvedPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  return resolvedPath;
 }
 
 async function sampleRaf(page, sampleSec) {
@@ -275,7 +294,11 @@ async function main() {
     await browser.close();
   }
 
-  console.log(JSON.stringify(summary));
+  const outputPath = await writeSummaryIfRequested(args.output, summary);
+  if (outputPath) {
+    summary.output_path = outputPath;
+    await writeSummaryIfRequested(outputPath, summary);
+  }
   process.exit(summary.ok ? 0 : 1);
 }
 

@@ -6,6 +6,7 @@ try {
     $uiHost = if ([string]::IsNullOrWhiteSpace($env:COMPANION_UI_HOST)) { "127.0.0.1" } else { $env:COMPANION_UI_HOST }
     $startPort = if ([string]::IsNullOrWhiteSpace($env:COMPANION_UI_PORT)) { 3000 } else { [int]$env:COMPANION_UI_PORT }
     $maxPort = if ([string]::IsNullOrWhiteSpace($env:COMPANION_UI_MAX_PORT)) { ($startPort + 20) } else { [int]$env:COMPANION_UI_MAX_PORT }
+    $verboseLogging = @("1", "true", "yes", "on") -contains ([string]$env:COMPANION_VERBOSE_LOGGING).Trim().ToLowerInvariant()
     $hostApiCandidates = @(
         "http://127.0.0.1:8082",
         "http://127.0.0.1:18082",
@@ -94,16 +95,22 @@ try {
         throw "No open UI port found in range $startPort-$maxPort on $uiHost."
     }
 
-    if ($uiPort -ne $startPort) {
-        Write-Host "Port $startPort is in use; using $uiPort instead."
+    $uvicornArgs = @(
+        "-m",
+        "uvicorn",
+        "companion_app.server:app",
+        "--app-dir",
+        "src",
+        "--host",
+        $uiHost,
+        "--port",
+        "$uiPort"
+    )
+    if (-not $verboseLogging) {
+        $uvicornArgs += @("--no-access-log", "--log-level", "critical")
     }
 
-    Write-Host "Companion host API: $($env:COMPANION_HOST_BASE_URL)"
-    if ([string]::IsNullOrWhiteSpace($env:COMPANION_API_KEY)) {
-        Write-Warning "COMPANION_API_KEY is not set. Host-backed Companion API calls will fail closed until you set it."
-    }
-
-    python -m uvicorn companion_app.server:app --app-dir src --host $uiHost --port $uiPort
+    python @uvicornArgs
 }
 finally {
     Pop-Location

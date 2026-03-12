@@ -8,4 +8,5 @@ __pycache__/
 .venv/
 
 UI/node_modules/
+tmp/
 

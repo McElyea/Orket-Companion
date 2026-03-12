@@ -647,7 +647,6 @@ describe("Companion App", () => {
 
   it("Layer: contract. fails closed on unsupported external avatar control-event versions.", async () => {
     installFetchMock();
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     render(<App />);
     await screen.findByText(/synced with host/i);
@@ -666,13 +665,9 @@ describe("Companion App", () => {
     );
 
     await waitFor(() => {
-      expect(warnSpy).toHaveBeenCalledWith(
-        "avatar.external_control_event_parse_failed",
-        expect.objectContaining({
-          error: "avatar_event_version_unsupported",
-        }),
-      );
+      expect(screen.queryByTestId("avatar-expression-cue")).toBeNull();
     });
+    expect(screen.getByText("idle")).toBeTruthy();
   });
 
   it("Layer: integration. applies supported external expression and gesture events as additive avatar cues.", async () => {
@@ -812,7 +807,7 @@ describe("Companion App", () => {
     expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
   });
 
-  it("Layer: contract. logs a non-fatal migration warning and falls back when persisted avatar prefs are invalid.", async () => {
+  it("Layer: contract. falls back quietly when persisted avatar prefs are invalid.", async () => {
     window.localStorage.setItem(
       AVATAR_PREFS_STORAGE_KEY,
       JSON.stringify({
@@ -832,12 +827,7 @@ describe("Companion App", () => {
 
     expect(screen.queryByAltText("Companion avatar")).toBeNull();
     expect(screen.getByTestId("presence-avatar-fallback")).toBeTruthy();
-    expect(warnSpy).toHaveBeenCalledWith(
-      "avatar.settings_migration_failed",
-      expect.objectContaining({
-        warning: "avatar_settings_v1_schema_invalid",
-      }),
-    );
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("Layer: contract. repopulates model catalog from lmstudio when provider is switched.", async () => {

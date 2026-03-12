@@ -41,8 +41,16 @@ function isWindowAvailable(): boolean {
   return typeof window !== "undefined";
 }
 
+function isTestEnv(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.env === "object" &&
+    String(process.env.NODE_ENV || "").toLowerCase() === "test"
+  );
+}
+
 function defaultSink(event: AvatarObservabilityEvent): void {
-  if (isWindowAvailable()) {
+  if (isWindowAvailable() && isTestEnv()) {
     const diagnosticsWindow = window as unknown as {
       __COMPANION_AVATAR_EVENTS__?: AvatarObservabilityEvent[];
     };
@@ -50,13 +58,6 @@ function defaultSink(event: AvatarObservabilityEvent): void {
       diagnosticsWindow.__COMPANION_AVATAR_EVENTS__ = [];
     }
     diagnosticsWindow.__COMPANION_AVATAR_EVENTS__.push(event);
-  }
-  const isTestEnv =
-    typeof process !== "undefined" &&
-    typeof process.env === "object" &&
-    String(process.env.NODE_ENV || "").toLowerCase() === "test";
-  if (typeof console !== "undefined" && !isTestEnv) {
-    console.debug(event.type, event.payload);
   }
 }
 
