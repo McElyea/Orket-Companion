@@ -25,7 +25,7 @@ describe("avatar_renderer", () => {
       assetLoadFailed: false,
     });
     expect(decision.fallbackActive).toBe(false);
-    expect(decision.renderAssetRef).toBe("assets/local-avatar.png");
+    expect(decision.renderAssetRef).toBe("/static/assets/local-avatar.png");
     expect(decision.rendererId).toBe("vrm");
   });
 

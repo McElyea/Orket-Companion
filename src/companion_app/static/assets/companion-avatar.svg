@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Companion avatar</title>
+  <desc id="desc">A simple local fallback avatar for the Companion app.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#1b8f8a" />
+      <stop offset="100%" stop-color="#184a63" />
+    </linearGradient>
+    <linearGradient id="face" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffe7c7" />
+      <stop offset="100%" stop-color="#f3b27a" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="320" rx="48" fill="url(#bg)" />
+  <circle cx="160" cy="164" r="98" fill="url(#face)" />
+  <path d="M101 122c13-31 39-48 59-48 23 0 41 9 60 31l12 14-14 2c-27 4-57 0-90-11-13 12-28 21-44 24l-11 2 4-14c2-6 7-13 24-30z" fill="#16222d" />
+  <ellipse cx="124" cy="165" rx="16" ry="19" fill="#16222d" />
+  <ellipse cx="196" cy="165" rx="16" ry="19" fill="#16222d" />
+  <circle cx="120" cy="160" r="5" fill="#fff" opacity="0.85" />
+  <circle cx="192" cy="160" r="5" fill="#fff" opacity="0.85" />
+  <path d="M124 222c18 13 55 13 72 0" fill="none" stroke="#9b4f35" stroke-linecap="round" stroke-width="10" />
+  <path d="M96 255c16-31 37-47 64-47s48 16 64 47" fill="none" stroke="#d2ecf2" stroke-linecap="round" stroke-width="18" />
+</svg>

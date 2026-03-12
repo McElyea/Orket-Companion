@@ -182,6 +182,29 @@ interface AvatarRenderDecisionInput {
   assetLoadFailed: boolean;
 }
 
+function toServedAvatarAssetRef(assetRef: string): string {
+  const normalized = assetRef.trim();
+  if (!normalized) {
+    return normalized;
+  }
+  if (normalized.startsWith("/static/")) {
+    return normalized;
+  }
+  if (normalized.startsWith("static/")) {
+    return `/${normalized}`;
+  }
+  if (normalized.startsWith("./static/")) {
+    return normalized.slice(1);
+  }
+  if (normalized.startsWith("assets/")) {
+    return `/static/${normalized}`;
+  }
+  if (normalized.startsWith("./assets/")) {
+    return `/static/${normalized.slice(2)}`;
+  }
+  return normalized;
+}
+
 export function resolveAvatarRenderDecision({
   prefs,
   assetLoadFailed,
@@ -261,7 +284,7 @@ export function resolveAvatarRenderDecision({
     hasAssetRef,
     assetPolicyAllowed,
     assetTypeAllowed,
-    renderAssetRef: normalizedAssetRef,
+    renderAssetRef: toServedAvatarAssetRef(normalizedAssetRef),
     fallbackActive: false,
     fallbackReason: "",
   };

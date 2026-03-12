@@ -86,7 +86,8 @@
 .secondaryButton:focus-visible,
 .ghostButton:focus-visible,
 .accordionTrigger:focus-visible,
-.switchRoot:focus-visible {
+.switchRoot:focus-visible,
+.toggleSummaryButton:focus-visible {
   outline: 2px solid var(--teal-deep);
   outline-offset: 2px;
 }
@@ -459,9 +460,24 @@
 
 .toggleRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.8rem;
+}
+
+.toggleSummaryButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  cursor: pointer;
 }
 
 .controlTitle {
@@ -475,24 +491,56 @@
   font-size: 0.84rem;
 }
 
-.switchRoot {
-  width: 44px;
-  height: 24px;
+.toggleControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+
+.toggleStateBadge {
+  min-width: 3rem;
+  padding: 0.32rem 0.7rem;
   border-radius: 999px;
-  border: 0;
-  background: color-mix(in srgb, var(--tone-muted) 66%, white 34%);
-  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--tone-muted) 55%, var(--text-secondary) 45%);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.toggleStateBadgeOn {
+  color: #0f5b50;
+  background: color-mix(in srgb, var(--brand-muted-teal) 35%, white 65%);
+  border-color: color-mix(in srgb, var(--brand-muted-teal) 70%, #0f5b50 30%);
+}
+
+.toggleStateBadgeOff {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--tone-muted) 78%, white 22%);
+}
+
+.switchRoot {
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone-muted) 45%, var(--text-secondary) 55%);
+  background: color-mix(in srgb, var(--tone-muted) 74%, white 26%);
+  padding: 3px;
   cursor: pointer;
   position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .switchRoot[data-state="checked"] {
-  background: color-mix(in srgb, var(--brand-muted-teal) 70%, white 30%);
+  background: color-mix(in srgb, var(--brand-muted-teal) 78%, white 22%);
+  border-color: color-mix(in srgb, var(--brand-muted-teal) 68%, #0f5b50 32%);
 }
 
 .switchThumb {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: white;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
@@ -502,7 +550,7 @@
 }
 
 .switchRoot[data-state="checked"] .switchThumb {
-  transform: translateX(20px);
+  transform: translateX(24px);
 }
 
 .rangeInput {

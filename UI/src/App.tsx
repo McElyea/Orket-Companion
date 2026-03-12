@@ -793,6 +793,14 @@ export function App(): JSX.Element {
     return created;
   }, []);
 
+  const unlockAudioPlayback = useCallback(async (): Promise<void> => {
+    const context = ensureAudioContext();
+    if (context.state !== "suspended") {
+      return;
+    }
+    await context.resume();
+  }, [ensureAudioContext]);
+
   const refreshStatus = useCallback(async (): Promise<void> => {
     const payload = await api.status();
     setStatus(payload);
@@ -1030,11 +1038,17 @@ export function App(): JSX.Element {
   );
 
   const speakText = useCallback(
-    async (text: string, emotionHintOverride: string = presenceMood): Promise<void> => {
+    async (
+      text: string,
+      emotionHintOverride: string = presenceMood,
+      announceResult: boolean = true,
+    ): Promise<{ played: boolean; failureMessage: string | null }> => {
       const normalized = String(text || "").trim();
       if (!normalized) {
-        setNotice("Nothing to speak yet.");
-        return;
+        if (announceResult) {
+          setNotice("Nothing to speak yet.");
+        }
+        return { played: false, failureMessage: "Nothing to speak yet." };
       }
       try {
         setTtsSpeaking(true);
@@ -1052,8 +1066,10 @@ export function App(): JSX.Element {
               rateLimitKey: `avatar_lipsync_failed:${failureMessage}`,
             },
           );
-          setNotice(`TTS unavailable: ${failureMessage}`);
-          return;
+          if (announceResult) {
+            setNotice(`TTS unavailable: ${failureMessage}`);
+          }
+          return { played: false, failureMessage };
         }
         const context = ensureAudioContext();
         if (context.state === "suspended") {
@@ -1088,7 +1104,10 @@ export function App(): JSX.Element {
         avatarObservabilityRef.current.emit("avatar.lipsync_started", {
           source: "tts_playback",
         });
-        setNotice(`Speaking with ${payload.voice_id || "default voice"}.`);
+        if (announceResult) {
+          setNotice(`Speaking with ${payload.voice_id || "default voice"}.`);
+        }
+        return { played: true, failureMessage: null };
       } catch (error) {
         stopMouthAnimation();
         setTtsSpeaking(false);
@@ -1102,7 +1121,10 @@ export function App(): JSX.Element {
             rateLimitKey: `avatar_lipsync_failed:${detail}`,
           },
         );
-        setNotice(`TTS error: ${detail}`);
+        if (announceResult) {
+          setNotice(`TTS error: ${detail}`);
+        }
+        return { played: false, failureMessage: detail };
       }
     },
     [
@@ -1124,6 +1146,16 @@ export function App(): JSX.Element {
       if (!message || sending) {
         return;
       }
+      let autoSpeakFailureMessage: string | null = null;
+      let autoSpeakStarted = false;
+      if (uiPreferences.autoSpeakReplies) {
+        try {
+          await unlockAudioPlayback();
+        } catch (error) {
+          autoSpeakFailureMessage =
+            error instanceof Error ? error.message : "Audio playback is unavailable in this browser.";
+        }
+      }
       setSending(true);
       setChatDraft("");
       setHistory((current) => [...current, { role: "user", content: message }]);
@@ -1140,14 +1172,24 @@ export function App(): JSX.Element {
         if (payload.config) {
           setConfig(payload.config);
         }
-        if (uiPreferences.autoSpeakReplies && assistantMessage.trim()) {
-          void speakText(assistantMessage, inferPresenceMood(assistantMessage));
+        if (uiPreferences.autoSpeakReplies && assistantMessage.trim() && !autoSpeakFailureMessage) {
+          const autoSpeakResult = await speakText(assistantMessage, inferPresenceMood(assistantMessage), false);
+          autoSpeakStarted = autoSpeakResult.played;
+          if (!autoSpeakResult.played) {
+            autoSpeakFailureMessage = autoSpeakResult.failureMessage || "Unable to play the latest reply.";
+          }
         }
-        setNotice(
+        const replyNotice =
           payload.text_only_degraded
             ? `Voice capture unavailable. Reply generated in ${payload.latency_ms}ms.`
-            : `Reply generated in ${payload.latency_ms}ms.`,
-        );
+            : `Reply generated in ${payload.latency_ms}ms.`;
+        if (autoSpeakFailureMessage) {
+          setNotice(`${replyNotice} Auto-speak blocked: ${autoSpeakFailureMessage}`);
+        } else if (autoSpeakStarted) {
+          setNotice(`${replyNotice} Auto-speak started.`);
+        } else {
+          setNotice(replyNotice);
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Chat request failed.";
         setNotice(`Chat error: ${detail}`);
@@ -1156,7 +1198,18 @@ export function App(): JSX.Element {
         window.requestAnimationFrame(() => composerRef.current?.focus());
       }
     },
-    [api, applySettings, chatDraft, model, provider, sending, sessionId, speakText, uiPreferences.autoSpeakReplies],
+    [
+      api,
+      applySettings,
+      chatDraft,
+      model,
+      provider,
+      sending,
+      sessionId,
+      speakText,
+      uiPreferences.autoSpeakReplies,
+      unlockAudioPlayback,
+    ],
   );
 
   const runVoiceCommand = useCallback(
@@ -1468,7 +1521,7 @@ export function App(): JSX.Element {
                 <input
                   id="avatar-asset-ref"
                   className={styles.textInput}
-                  placeholder="assets/avatar.png"
+                  placeholder="/static/assets/companion-avatar.svg"
                   value={avatarPrefs.asset_ref || ""}
                   onChange={(event) => {
                     const nextRef = String(event.target.value || "").trim();
@@ -1476,7 +1529,7 @@ export function App(): JSX.Element {
                   }}
                 />
                 <p className={styles.helperText}>
-                  Remote URLs are blocked. Companion always fails closed to fallback if asset policy is violated.
+                  Remote URLs are blocked. Use a Companion-served path such as /static/assets/companion-avatar.svg.
                 </p>
                 {!avatarAssetAllowed && hasAvatarAssetRef ? (
                   <p className={styles.helperText}>Remote avatar assets are disabled for this lane.</p>
@@ -1922,20 +1975,31 @@ interface ToggleRowProps {
 }
 
 function ToggleRow({ label, hint, checked, onCheckedChange }: ToggleRowProps): JSX.Element {
+  const stateLabel = checked ? "On" : "Off";
   return (
     <div className={styles.toggleRow}>
-      <div>
+      <button
+        type="button"
+        className={styles.toggleSummaryButton}
+        onClick={() => onCheckedChange(!checked)}
+        aria-label={`${label}: ${stateLabel}`}
+      >
         <div className={styles.controlTitle}>{label}</div>
         <div className={styles.helperText}>{hint}</div>
+      </button>
+      <div className={styles.toggleControl}>
+        <span className={`${styles.toggleStateBadge} ${checked ? styles.toggleStateBadgeOn : styles.toggleStateBadgeOff}`}>
+          {stateLabel}
+        </span>
+        <Switch.Root
+          className={styles.switchRoot}
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          aria-label={label}
+        >
+          <Switch.Thumb className={styles.switchThumb} />
+        </Switch.Root>
       </div>
-      <Switch.Root
-        className={styles.switchRoot}
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        aria-label={label}
-      >
-        <Switch.Thumb className={styles.switchThumb} />
-      </Switch.Root>
     </div>
   );
 }

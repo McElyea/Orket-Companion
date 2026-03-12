@@ -8,10 +8,57 @@ cd "${repo_root}"
 ui_host="${COMPANION_UI_HOST:-127.0.0.1}"
 start_port="${COMPANION_UI_PORT:-3000}"
 max_port="${COMPANION_UI_MAX_PORT:-$((start_port + 20))}"
+host_api_candidates=(
+  "http://127.0.0.1:8082"
+  "http://127.0.0.1:18082"
+  "http://127.0.0.1:8000"
+)
 
 if [ "${max_port}" -lt "${start_port}" ]; then
   echo "COMPANION_UI_MAX_PORT (${max_port}) must be >= COMPANION_UI_PORT (${start_port})." >&2
   exit 2
+fi
+
+test_host_api_reachable() {
+  python - <<'PY' "$1"
+import socket
+import sys
+from urllib.parse import urlparse
+
+parsed = urlparse(sys.argv[1])
+host = parsed.hostname
+port = parsed.port
+
+if not host or not port:
+    raise SystemExit(1)
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(0.5)
+try:
+    sock.connect((host, port))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+PY
+}
+
+if [ -z "${COMPANION_HOST_BASE_URL:-}" ]; then
+  for candidate in "${host_api_candidates[@]}"; do
+    if test_host_api_reachable "${candidate}"; then
+      export COMPANION_HOST_BASE_URL="${candidate}"
+      break
+    fi
+  done
+  export COMPANION_HOST_BASE_URL="${COMPANION_HOST_BASE_URL:-${host_api_candidates[0]}}"
+fi
+
+if [ -z "${COMPANION_API_KEY:-}" ]; then
+  if [ -n "${ORKET_COMPANION_API_KEY:-}" ]; then
+    export COMPANION_API_KEY="${ORKET_COMPANION_API_KEY}"
+  elif [ -n "${ORKET_API_KEY:-}" ]; then
+    export COMPANION_API_KEY="${ORKET_API_KEY}"
+  fi
 fi
 
 ui_port="$(
@@ -50,6 +97,11 @@ fi
 
 if [ "${ui_port}" != "${start_port}" ]; then
   echo "Port ${start_port} is in use; using ${ui_port} instead."
+fi
+
+echo "Companion host API: ${COMPANION_HOST_BASE_URL}"
+if [ -z "${COMPANION_API_KEY:-}" ]; then
+  echo "Warning: COMPANION_API_KEY is not set. Host-backed Companion API calls will fail closed until you set it." >&2
 fi
 
 python -m uvicorn companion_app.server:app --app-dir src --host "${ui_host}" --port "${ui_port}"

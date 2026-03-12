@@ -36,9 +36,10 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - `set ORKET_API_KEY=core-key`
    - `set ORKET_COMPANION_API_KEY=companion-key`
    - `set ORKET_COMPANION_KEY_STRICT=true`
-   - Start host: `python -m uvicorn orket.interfaces.api:app --host 127.0.0.1 --port 18082`
+   - Start host (matches `py server.py` defaults): `py server.py`
+   - Optional explicit host launch: `python -m uvicorn orket.interfaces.api:app --host 127.0.0.1 --port 8082`
 2. Start Companion gateway/UI:
-   - `set COMPANION_HOST_BASE_URL=http://127.0.0.1:18082`
+   - `set COMPANION_HOST_BASE_URL=http://127.0.0.1:8082`
    - `set COMPANION_API_KEY=companion-key`
    - Optional UI bind controls:
      - `COMPANION_UI_HOST` (default `127.0.0.1`)
@@ -47,8 +48,16 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - Launch:
      - PowerShell: `.\scripts\run.ps1`
      - Unix: `./scripts/run.sh`
-3. Open the printed URL (the run script auto-falls to the next open port if needed).
+   - The run scripts auto-detect a local Orket host on `8082`, then `18082`, then `8000` when `COMPANION_HOST_BASE_URL` is unset.
+   - If `COMPANION_API_KEY` is unset, the run scripts reuse `ORKET_COMPANION_API_KEY` or `ORKET_API_KEY` when those are already present in the same shell.
+3. Open the printed URL (the run script auto-falls to the next open port if needed). Set `COMPANION_UI_PORT=3001` if you want the legacy `127.0.0.1:3001` URL.
 4. For live speaking/lipsync verification, set `ORKET_TTS_BACKEND=piper` with a valid `ORKET_TTS_PIPER_MODEL_PATH` (and optional `ORKET_TTS_PIPER_BIN`). If no PATH shim is present for `piper`, runtime falls back to `python -m piper` when the module is installed.
+
+## Avatar asset refs
+1. Companion serves UI assets from `/static/...`.
+2. A built-in starter avatar is available at `/static/assets/companion-avatar.svg`.
+3. For avatar images or VRM/GLTF assets stored under the UI static tree, use refs such as `/static/assets/companion-avatar.svg`.
+4. Legacy `assets/...` refs are normalized to `/static/assets/...` at render time for backward compatibility.
 
 ## Quick live smoke checks
 1. `Invoke-RestMethod http://127.0.0.1:3000/api/status`

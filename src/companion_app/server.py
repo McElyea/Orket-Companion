@@ -43,7 +43,7 @@ class TranscribeRequest(BaseModel):
 
 
 class SynthesizeRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=4000)
     voice_id: str = Field(default="", max_length=128)
     emotion_hint: str = Field(default="neutral", max_length=64)
     speed: float = 1.0
@@ -68,6 +68,8 @@ _MAX_CHAT_MESSAGE_BYTES = 8_000
 _MAX_AUDIO_B64_BYTES = 8_000_000
 _MAX_SYNTH_TEXT_BYTES = 4_000
 _MAX_CADENCE_TEXT_BYTES = 8_000
+_DEFAULT_HOST_API_BASE_URL = "http://127.0.0.1:8082"
+_HOST_API_KEY_ENV_NAMES = ("COMPANION_API_KEY", "ORKET_COMPANION_API_KEY", "ORKET_API_KEY")
 _avatar_control_event_store = InMemoryAvatarControlEventStore()
 
 
@@ -148,19 +150,38 @@ def _enforce_text_size_limit(*, value: str, max_bytes: int, code: str, message: 
             "code": code,
             "message": message,
         },
-    )
+        )
+
+
+def _read_first_nonempty_env(*names: str) -> str:
+    for name in names:
+        value = str(os.getenv(name, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_host_api_base_url() -> str:
+    return str(os.getenv("COMPANION_HOST_BASE_URL", _DEFAULT_HOST_API_BASE_URL)).strip()
+
+
+def _resolve_host_api_key() -> str:
+    return _read_first_nonempty_env(*_HOST_API_KEY_ENV_NAMES)
 
 
 def _client() -> CompanionApiClient:
-    base_url = str(os.getenv("COMPANION_HOST_BASE_URL", "http://127.0.0.1:8000")).strip()
-    api_key = str(os.getenv("COMPANION_API_KEY", "")).strip()
+    base_url = _resolve_host_api_base_url()
+    api_key = _resolve_host_api_key()
     if not api_key:
         raise HTTPException(
             status_code=503,
             detail={
                 "ok": False,
                 "code": "E_COMPANION_GATEWAY_API_KEY_REQUIRED",
-                "message": "COMPANION_API_KEY is required for Companion host API access.",
+                "message": (
+                    "COMPANION_API_KEY is required for Companion host API access. "
+                    "Set COMPANION_API_KEY or ORKET_COMPANION_API_KEY in the Companion process environment."
+                ),
             },
         )
     timeout_seconds = float(os.getenv("COMPANION_TIMEOUT_SECONDS", "45"))

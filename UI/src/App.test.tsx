@@ -28,10 +28,23 @@ interface MockBufferSource {
   stop: ReturnType<typeof vi.fn>;
 }
 
-function installAudioContextMock(): { sources: MockBufferSource[] } {
+function installAudioContextMock(options: {
+  initialState?: "running" | "suspended";
+  eventLog?: string[];
+} = {}): {
+  sources: MockBufferSource[];
+  resume: ReturnType<typeof vi.fn>;
+} {
   const sources: MockBufferSource[] = [];
+  let currentState = options.initialState ?? "running";
+  const resume = vi.fn(async () => {
+    options.eventLog?.push("audio.resume");
+    currentState = "running";
+  });
   const context = {
-    state: "running",
+    get state() {
+      return currentState;
+    },
     currentTime: 0,
     destination: {},
     createBuffer: (channels: number, frameCount: number, sampleRate: number) => {
@@ -54,14 +67,14 @@ function installAudioContextMock(): { sources: MockBufferSource[] } {
       sources.push(source);
       return source as unknown as AudioBufferSourceNode;
     },
-    resume: vi.fn(async () => undefined),
+    resume,
     close: vi.fn(async () => undefined),
   } as unknown as AudioContext;
 
   vi.stubGlobal("AudioContext", vi.fn(() => context));
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
-  return { sources };
+  return { sources, resume };
 }
 
 const DEFAULT_CONFIG = {
@@ -108,7 +121,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function installFetchMock(options: FetchMockOptions = {}): RecordedCall[] {
+function installFetchMock(options: FetchMockOptions = {}, eventLog?: string[]): RecordedCall[] {
   const calls: RecordedCall[] = [];
   const avatarControlFeedEvents = [...(options.avatarControlFeedEvents || [])];
   let avatarControlFeedSeq = 0;
@@ -124,6 +137,7 @@ function installFetchMock(options: FetchMockOptions = {}): RecordedCall[] {
     const body = parseBody(init?.body);
 
     calls.push({ path: url.pathname, query: url.search, method, body });
+    eventLog?.push(`${method} ${url.pathname}`);
 
     if (method === "GET" && url.pathname === "/api/status") {
       return jsonResponse({
@@ -384,7 +398,9 @@ describe("Companion App", () => {
   });
 
   it("Layer: integration. auto-speak replies triggers synthesis automatically when enabled.", async () => {
-    const calls = installFetchMock({ ttsAvailable: true });
+    const eventLog: string[] = [];
+    const calls = installFetchMock({ ttsAvailable: true }, eventLog);
+    const audioHarness = installAudioContextMock({ initialState: "suspended", eventLog });
     const user = userEvent.setup();
 
     render(<App />);
@@ -398,7 +414,32 @@ describe("Companion App", () => {
 
     await waitFor(() => {
       expect(calls.some((call) => call.path === "/api/voice/synthesize")).toBe(true);
+      expect(audioHarness.resume).toHaveBeenCalledTimes(1);
+      expect(audioHarness.sources.length).toBe(1);
     });
+    expect(eventLog.indexOf("audio.resume")).toBeGreaterThanOrEqual(0);
+    expect(eventLog.indexOf("audio.resume")).toBeLessThan(eventLog.indexOf("POST /api/chat"));
+    expect((screen.getByRole("button", { name: /stop playback/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Layer: contract. auto-speak toggle shows explicit state and can be toggled from its label row.", async () => {
+    installFetchMock({ ttsAvailable: true });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText(/synced with host/i);
+
+    const toggle = screen.getByRole("switch", { name: "Auto-speak replies" });
+    const toggleButton = screen.getByRole("button", { name: "Auto-speak replies: Off" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggleButton.textContent).toContain("Auto-speak replies");
+
+    await user.click(toggleButton);
+
+    await waitFor(() => {
+      expect(toggle.getAttribute("aria-checked")).toBe("true");
+    });
+    expect(screen.getByRole("button", { name: "Auto-speak replies: On" })).toBeTruthy();
   });
 
   it("Layer: contract. preserves explicit text submit semantics even after voice control changes.", async () => {
@@ -730,7 +771,7 @@ describe("Companion App", () => {
 
     await screen.findByText(/synced with host/i);
     const avatarImage = screen.getByAltText("Companion avatar") as HTMLImageElement;
-    expect(avatarImage.getAttribute("src")).toBe("assets/local-avatar.png");
+    expect(avatarImage.getAttribute("src")).toBe("/static/assets/local-avatar.png");
     expect((screen.getByLabelText("Avatar Mode") as HTMLSelectElement).value).toBe("avatar");
     expect((screen.getByLabelText("Avatar Renderer") as HTMLSelectElement).value).toBe("vrm");
   });
