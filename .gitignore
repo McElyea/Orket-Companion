@@ -9,4 +9,8 @@ __pycache__/
 
 UI/node_modules/
 tmp/
+.env
+.env.local
+.env.*
+!.env.example
 

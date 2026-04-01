@@ -1,6 +1,6 @@
 # Orket Companion Extension
 
-Companion is an external SDK extension with a local web gateway/UI. The web app talks only to the extension gateway, and the gateway talks to Orket Host API (`/api/v1/companion/*`).
+Companion is an external SDK extension with a local web gateway/UI. The web app talks only to the extension gateway, and the gateway talks to the Orket Host API only through the generic extension runtime surface (`/v1/extensions/{extension_id}/runtime/*`).
 
 ## Validation
 1. `python -m orket_extension_sdk.validate . --json`
@@ -32,15 +32,16 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
 3. `npm --prefix UI run build`
 
 ## Run end to end (secure-by-default)
-1. Start Orket host API with key scoping:
+1. Start Orket host API with core API auth:
    - `set ORKET_API_KEY=core-key`
-   - `set ORKET_COMPANION_API_KEY=companion-key`
-   - `set ORKET_COMPANION_KEY_STRICT=true`
    - Start host (matches `py server.py` defaults): `py server.py`
    - Optional explicit host launch: `python -m uvicorn orket.interfaces.api:app --host 127.0.0.1 --port 8082`
 2. Start Companion gateway/UI:
    - `set COMPANION_HOST_BASE_URL=http://127.0.0.1:8082`
-   - `set COMPANION_API_KEY=companion-key`
+   - `set COMPANION_API_KEY=core-key`
+   - Optional alternative: keep `ORKET_API_KEY=core-key` in the same shell and let the gateway reuse it.
+   - Optional repo-local env file: put `COMPANION_API_KEY=core-key` in `.env.local` at the repo root.
+   - Optional extension routing override: `set COMPANION_EXTENSION_ID=orket.companion`
    - Optional UI bind controls:
      - `COMPANION_UI_HOST` (default `127.0.0.1`)
      - `COMPANION_UI_PORT` (default `3000`, starting port)
@@ -49,8 +50,10 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
      - PowerShell: `.\scripts\run.ps1`
      - Unix: `./scripts/run.sh`
    - The run scripts auto-detect a local Orket host on `8082`, then `18082`, then `8000` when `COMPANION_HOST_BASE_URL` is unset.
-   - If `COMPANION_API_KEY` is unset, the run scripts reuse `ORKET_COMPANION_API_KEY` or `ORKET_API_KEY` when those are already present in the same shell.
-3. Open the printed URL (the run script auto-falls to the next open port if needed). Set `COMPANION_UI_PORT=3001` if you want the legacy `127.0.0.1:3001` URL.
+   - If `COMPANION_API_KEY` is unset, the run scripts reuse `ORKET_API_KEY` when it is already present in the same shell.
+   - The run scripts also load `.env` and `.env.local` from the repo root without overriding variables that are already set in the shell; `.env.local` wins over `.env`.
+   - The run scripts always print the selected UI URL and warn when no host API key is available; the UI still starts, but host-backed `/api/*` requests remain unavailable until a key is set.
+3. Open the printed URL (the run script auto-falls to the next open port if needed and prints the fallback). Set `COMPANION_UI_PORT=3001` if you want the legacy `127.0.0.1:3001` URL.
 4. For live speaking/lipsync verification, set `ORKET_TTS_BACKEND=piper` with a valid `ORKET_TTS_PIPER_MODEL_PATH` (and optional `ORKET_TTS_PIPER_BIN`). If no PATH shim is present for `piper`, runtime falls back to `python -m piper` when the module is installed.
 
 ## Avatar asset refs
@@ -79,8 +82,9 @@ Companion is an external SDK extension with a local web gateway/UI. The web app 
    - Probe output includes `performance_metrics.synced_notice_ms` (UI-ready/TTI proxy), navigation timings, and idle/speaking RAF FPS samples.
 
 ## Gateway hardening
-1. Missing `COMPANION_API_KEY` fails closed with `E_COMPANION_GATEWAY_API_KEY_REQUIRED`.
+1. Missing both `COMPANION_API_KEY` and `ORKET_API_KEY` fails closed with `E_COMPANION_GATEWAY_API_KEY_REQUIRED`.
 2. Non-loopback clients are blocked by default (`E_COMPANION_GATEWAY_LOOPBACK_REQUIRED`).
 3. Mutating requests enforce same-origin by default (`E_COMPANION_GATEWAY_CSRF_BLOCKED`).
 4. Payload size guardrails return `413` for oversized config/chat/audio payloads.
+5. The gateway owns Companion product routes under `/api/*` and translates them to the generic Orket host runtime surface.
 

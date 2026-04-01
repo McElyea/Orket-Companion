@@ -49,10 +49,8 @@ def _parse_args() -> argparse.Namespace:
 
 def _configure_environment(args: argparse.Namespace) -> None:
     os.environ["ORKET_API_KEY"] = "core-key"
-    os.environ["ORKET_COMPANION_API_KEY"] = "companion-key"
-    os.environ["ORKET_COMPANION_KEY_STRICT"] = "true"
     os.environ["COMPANION_HOST_BASE_URL"] = f"http://127.0.0.1:{args.host_port}"
-    os.environ["COMPANION_API_KEY"] = "companion-key"
+    os.environ["COMPANION_API_KEY"] = "core-key"
     if args.enable_piper:
         os.environ["ORKET_TTS_BACKEND"] = "piper"
         if args.piper_model_path:

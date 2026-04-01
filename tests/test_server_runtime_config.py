@@ -10,15 +10,13 @@ def test_layer_contract_resolve_host_api_base_url_defaults_to_orket_server_port(
 
 
 def test_layer_contract_resolve_host_api_key_uses_companion_specific_fallbacks(monkeypatch) -> None:
-    monkeypatch.delenv("COMPANION_API_KEY", raising=False)
-    monkeypatch.setenv("ORKET_COMPANION_API_KEY", "companion-key")
+    monkeypatch.setenv("COMPANION_API_KEY", "companion-key")
     monkeypatch.setenv("ORKET_API_KEY", "core-key")
     assert _resolve_host_api_key() == "companion-key"
 
 
 def test_layer_contract_resolve_host_api_key_falls_back_to_default_host_key(monkeypatch) -> None:
     monkeypatch.delenv("COMPANION_API_KEY", raising=False)
-    monkeypatch.delenv("ORKET_COMPANION_API_KEY", raising=False)
     monkeypatch.setenv("ORKET_API_KEY", "core-key")
     assert _resolve_host_api_key() == "core-key"
 
